@@ -1009,7 +1009,8 @@ def stereo_disparity( left_gray, right_gray, stereo_params: dict ):
 # stereo_disparity
 
 
-def stereo_rectify( img_left, img_right, stereo_params, interp_method = cv.INTER_LINEAR, force_recalc: bool = False ):
+def stereo_rectify( img_left, img_right, stereo_params, interp_method = cv.INTER_LINEAR, alpha:float = -1,
+                   force_recalc: bool = False ):
     # gray-scale the image
     left_gray = cv.cvtColor( img_left, cv.COLOR_BGR2GRAY )
     right_gray = cv.cvtColor( img_right, cv.COLOR_BGR2GRAY )
@@ -1023,13 +1024,14 @@ def stereo_rectify( img_left, img_right, stereo_params, interp_method = cv.INTER
     t = stereo_params['t'].astype( float )
     
     if force_recalc or any( k not in stereo_params.keys() for k in ['R1', 'R2', 'P1', 'P2'] ):
-        R_l, R_r, P_l, P_r, Q, *_ = cv.stereoRectify( K_l, dists_l, K_r, dists_r, left_gray.shape[::-1],
-                                                 R, t )
+        R_l, R_r, P_l, P_r, Q, roi_l, roi_r = cv.stereoRectify( K_l, dists_l, K_r, dists_r, left_gray.shape[::-1],
+                                                 R, t, alpha = alpha )
         stereo_params['R1'] = R_l
         stereo_params['R2'] = R_r
         stereo_params['P1'] = P_l
         stereo_params['P2'] = P_r
         stereo_params['Q'] = Q
+        rois_lr = ( roi_l, roi_r )
         
     # if
     
@@ -1038,8 +1040,12 @@ def stereo_rectify( img_left, img_right, stereo_params, interp_method = cv.INTER
         R_r = stereo_params['R2']
         P_l = stereo_params['P1']
         P_r = stereo_params['P2']
+        rois_lr = tuple( 2 * [[[0, 0], [-1, 1]]] )
         
     # else
+    
+    print( P_l, '\n', P_r, end = '\n\n' )
+    print( P_l - P_r )
     
     # compute stereo rectification map
     map1_l, map2_l = cv.initUndistortRectifyMap( K_l, dists_l, R_l, P_l, left_gray.shape[::-1], cv.CV_32FC1 )
@@ -1049,7 +1055,7 @@ def stereo_rectify( img_left, img_right, stereo_params, interp_method = cv.INTER
     left_rect = cv.remap( img_left, map1_l, map2_l, interp_method )
     right_rect = cv.remap( img_right, map1_r, map2_r, interp_method )
     
-    return left_rect, right_rect, ( map1_l, map2_l ), ( map1_r, map2_r )
+    return left_rect, right_rect, rois_lr, ( map1_l, map2_l ), ( map1_r, map2_r )
     
 # stereo_rectify
 
