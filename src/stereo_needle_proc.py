@@ -571,8 +571,8 @@ def load_stereoparams_matlab( param_file: str ):
    
     stereo_params['R1'] = R1
     stereo_params['R2'] = R2
-    stereo_params['P1'] = stereo_params['cameraMatrix1'] @ np.eye( 3, 4 )
-    stereo_params['P2'] = stereo_params['cameraMatrix2'] @ H[:-1]
+    stereo_params['P1'] = P1  # stereo_params['cameraMatrix1'] @ np.eye( 3, 4 )
+    stereo_params['P2'] = P2  # stereo_params['cameraMatrix2'] @ H[:-1]
     stereo_params['Q'] = Q
     
     return stereo_params
@@ -957,10 +957,10 @@ def roi( img, roi, full:bool = True ):
         zval = 0 if img.ndim == 2 else np.array( [0, 0, 0] )
         
         # zero out values
-        img_roi [:tl_i,:] = zval
-        img_roi [br_i:,:] = zval
+        img_roi [:tl_i, :] = zval
+        img_roi [br_i:, :] = zval
         
-        img_roi [:,:tl_j] = zval
+        img_roi [:, :tl_j] = zval
         img_roi [:, br_j:] = zval
         
     # if
@@ -1007,6 +1007,51 @@ def stereo_disparity( left_gray, right_gray, stereo_params: dict ):
     return disparity
     
 # stereo_disparity
+
+
+def stereo_rectify( img_left, img_right, stereo_params, interp_method = cv.INTER_LINEAR, force_recalc: bool = False ):
+    # gray-scale the image
+    left_gray = cv.cvtColor( img_left, cv.COLOR_BGR2GRAY )
+    right_gray = cv.cvtColor( img_right, cv.COLOR_BGR2GRAY )
+    
+    # perform stereo rectification
+    K_l = stereo_params['cameraMatrix1'].astype( float )
+    K_r = stereo_params['cameraMatrix2'].astype( float )
+    dists_l = stereo_params['distCoeffs1'].astype( float )
+    dists_r = stereo_params['distCoeffs2'].astype( float )
+    R = stereo_params['R'].astype( float )
+    t = stereo_params['t'].astype( float )
+    
+    if force_recalc or any( k not in stereo_params.keys() for k in ['R1', 'R2', 'P1', 'P2'] ):
+        R_l, R_r, P_l, P_r, Q, *_ = cv.stereoRectify( K_l, dists_l, K_r, dists_r, left_gray.shape[::-1],
+                                                 R, t )
+        stereo_params['R1'] = R_l
+        stereo_params['R2'] = R_r
+        stereo_params['P1'] = P_l
+        stereo_params['P2'] = P_r
+        stereo_params['Q'] = Q
+        
+    # if
+    
+    else:
+        R_l = stereo_params['R1']
+        R_r = stereo_params['R2']
+        P_l = stereo_params['P1']
+        P_r = stereo_params['P2']
+        
+    # else
+    
+    # compute stereo rectification map
+    map1_l, map2_l = cv.initUndistortRectifyMap( K_l, dists_l, R_l, P_l, left_gray.shape[::-1], cv.CV_32FC1 )
+    map1_r, map2_r = cv.initUndistortRectifyMap( K_r, dists_r, R_r, P_r, right_gray.shape[::-1], cv.CV_32FC1 )
+    
+    # apply stereo rectification map
+    left_rect = cv.remap( img_left, map1_l, map2_l, interp_method )
+    right_rect = cv.remap( img_right, map1_r, map2_r, interp_method )
+    
+    return left_rect, right_rect, ( map1_l, map2_l ), ( map1_r, map2_r )
+    
+# stereo_rectify
 
 
 def stereomatch_needle( left_conts, right_conts, start_location = "tip", col:int = 1,
@@ -1289,9 +1334,9 @@ def main_dbg():
     Pl = stereo_params['P1']
     Pr = stereo_params['P2']
     pts_l = Pl @ world_pointsh
-    pts_l = ( pts_l / pts_l[-1] ).T[:,:-1]
+    pts_l = ( pts_l / pts_l[-1] ).T[:, :-1]
     pts_r = Pr @ world_pointsh
-    pts_r = ( pts_r / pts_r[-1] ).T[:,:-1]
+    pts_r = ( pts_r / pts_r[-1] ).T[:, :-1]
     
     print( 'pts shape (l,r):', pts_l.shape, pts_r.shape )
     tri_pts = triangulate_points( pts_l, pts_r, stereo_params, distorted = False )
@@ -1634,8 +1679,8 @@ def main_needleval( file_nums, img_dir, stereo_params, save_dir = None,
     
     # load in the pre-determined ROIs
     rois_rl = np.load( img_dir + 'rois_lr.npy' )
-    rois_l = rois_rl[:,:, 0:2].tolist()
-    rois_r = rois_rl[:,:, 2:4].tolist()
+    rois_l = rois_rl[:, :, 0:2].tolist()
+    rois_r = rois_rl[:, :, 2:4].tolist()
     
     for img_num in file_nums:
         # left-right stereo pairs
