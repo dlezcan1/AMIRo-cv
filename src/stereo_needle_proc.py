@@ -10,7 +10,7 @@ This is a file for building image processing to segment the needle in stereo ima
 
 import re, glob, warnings
 import numpy as np
-import cv2
+import cv2 as cv
 import matplotlib.pyplot as plt
 import scipy.io as sio
 from scipy.signal import savgol_filter
@@ -64,6 +64,16 @@ def blackout( img, tl, br ):
 # blackout
 
 
+def blackout_image( bo_regions: list, image_size ):
+    bo_bool = np.ones( image_size[:2], dtype = bool )
+    
+    bo_bool = blackout_regions( bo_bool, bo_regions )
+    
+    return bo_bool
+
+# blackout_image
+
+
 def blackout_regions( img, bo_regions: list ):
     
     for tl, br in bo_regions:
@@ -78,8 +88,8 @@ def blackout_regions( img, bo_regions: list ):
 
 def bin_close( left_bin, right_bin, ksize = ( 6, 6 ) ):
     kernel = np.ones( ksize )
-    left_close = cv2.morphologyEx( left_bin, cv2.MORPH_CLOSE, kernel )
-    right_close = cv2.morphologyEx( right_bin, cv2.MORPH_CLOSE, kernel )
+    left_close = cv.morphologyEx( left_bin, cv.MORPH_CLOSE, kernel )
+    right_close = cv.morphologyEx( right_bin, cv.MORPH_CLOSE, kernel )
     
     return left_close, right_close
 
@@ -88,8 +98,8 @@ def bin_close( left_bin, right_bin, ksize = ( 6, 6 ) ):
 
 def bin_dilate( left_bin, right_bin, ksize = ( 3, 3 ) ):
     kernel = np.ones( ksize )
-    left_dil = cv2.dilate( left_bin, kernel )
-    right_dil = cv2.dilate( right_bin, kernel )
+    left_dil = cv.dilate( left_bin, kernel )
+    right_dil = cv.dilate( right_bin, kernel )
     
     return left_dil, right_dil
 
@@ -98,8 +108,8 @@ def bin_dilate( left_bin, right_bin, ksize = ( 3, 3 ) ):
 
 def bin_erode( left_bin, right_bin, ksize = ( 3, 3 ) ):
     kernel = np.ones( ksize )
-    left_erode = cv2.erode( left_bin, kernel )
-    right_erode = cv2.erode( right_bin, kernel )
+    left_erode = cv.erode( left_bin, kernel )
+    right_erode = cv.erode( right_bin, kernel )
     
     return left_erode, right_erode
 
@@ -108,8 +118,8 @@ def bin_erode( left_bin, right_bin, ksize = ( 3, 3 ) ):
 
 def bin_open( left_bin, right_bin, ksize = ( 6, 6 ) ):
     kernel = np.ones( ksize )
-    left_open = cv2.morphologyEx( left_bin, cv2.MORPH_OPEN, kernel )
-    right_open = cv2.morphologyEx( right_bin, cv2.MORPH_OPEN, kernel )
+    left_open = cv.morphologyEx( left_bin, cv.MORPH_OPEN, kernel )
+    right_open = cv.morphologyEx( right_bin, cv.MORPH_OPEN, kernel )
     
     return left_open, right_open
 
@@ -119,8 +129,8 @@ def bin_open( left_bin, right_bin, ksize = ( 6, 6 ) ):
 def canny( left_img, right_img, lo_thresh = 150, hi_thresh = 200 ):
     ''' Canny edge detection '''
 
-    canny_left = cv2.Canny( left_img, lo_thresh, hi_thresh )
-    canny_right = cv2.Canny( right_img, lo_thresh, hi_thresh )
+    canny_left = cv.Canny( left_img, lo_thresh, hi_thresh )
+    canny_right = cv.Canny( right_img, lo_thresh, hi_thresh )
     
     return canny_left, canny_right
 
@@ -191,16 +201,16 @@ def color_segmentation( left_img, right_img, color ):
     # if
     
     # convert into HSV color space 
-    left_hsv = cv2.cvtColor( left_img, cv2.COLOR_BGR2HSV )
-    right_hsv = cv2.cvtColor( right_img, cv2.COLOR_BGR2HSV )
+    left_hsv = cv.cvtColor( left_img, cv.COLOR_BGR2HSV )
+    right_hsv = cv.cvtColor( right_img, cv.COLOR_BGR2HSV )
     
     # determine which colors are within the bounds
-    left_mask = cv2.inRange( left_hsv, lb, ub )
-    right_mask = cv2.inRange( right_hsv, lb, ub )
+    left_mask = cv.inRange( left_hsv, lb, ub )
+    right_mask = cv.inRange( right_hsv, lb, ub )
     
     # masked images
-    left_color = cv2.bitwise_and( left_img, left_img, mask = left_mask )
-    right_color = cv2.bitwise_and( right_img, right_img, mask = right_mask )
+    left_color = cv.bitwise_and( left_img, left_img, mask = left_mask )
+    right_color = cv.bitwise_and( right_img, right_img, mask = right_mask )
     
     return left_mask, right_mask, left_color, right_color
     
@@ -208,8 +218,8 @@ def color_segmentation( left_img, right_img, color ):
     
 
 def contours( left_skel, right_skel ):
-    conts_l, *_ = cv2.findContours( left_skel.astype( np.uint8 ), cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE )
-    conts_r, *_ = cv2.findContours( right_skel.astype( np.uint8 ), cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE )
+    conts_l, *_ = cv.findContours( left_skel.astype( np.uint8 ), cv.RETR_LIST, cv.CHAIN_APPROX_NONE )
+    conts_r, *_ = cv.findContours( right_skel.astype( np.uint8 ), cv.RETR_LIST, cv.CHAIN_APPROX_NONE )
     
     conts_l = sorted( conts_l, key = len, reverse = True )
     conts_r = sorted( conts_r, key = len, reverse = True )
@@ -221,8 +231,8 @@ def contours( left_skel, right_skel ):
 
 def gauss_blur( left_img, right_img, ksize, sigma:tuple = ( 0, 0 ) ):
     ''' gaussian blur '''
-    left_blur = cv2.GaussianBlur( left_img, ksize, sigmaX = sigma[0], sigmaY = sigma[0] )
-    right_blur = cv2.GaussianBlur( right_img, ksize, sigmaX = sigma[0], sigmaY = sigma[0] )
+    left_blur = cv.GaussianBlur( left_img, ksize, sigmaX = sigma[0], sigmaY = sigma[0] )
+    right_blur = cv.GaussianBlur( right_img, ksize, sigmaX = sigma[0], sigmaY = sigma[0] )
     
     return left_blur, right_blur
 
@@ -235,8 +245,8 @@ def _gridproc_stereo( left_img, right_img,
     ''' DEPRECATED wrapper function to segment the grid out of a stereo pair '''
     # convert to grayscale if not already
     if left_img.ndim > 2:
-        left_img = cv2.cvtColor( left_img, cv2.COLOR_BGR2GRAY )
-        right_img = cv2.cvtColor( right_img, cv2.COLOR_BGR2GRAY )
+        left_img = cv.cvtColor( left_img, cv.COLOR_BGR2GRAY )
+        right_img = cv.cvtColor( right_img, cv.COLOR_BGR2GRAY )
 
     # if
     
@@ -256,14 +266,14 @@ def _gridproc_stereo( left_img, right_img,
     
     # hough line transform
     hough_thresh = 200
-    left_lines = np.squeeze( cv2.HoughLines( left_skel.astype( np.uint8 ), 2, np.pi / 180, hough_thresh ) )
-    right_lines = np.squeeze( cv2.HoughLines( right_skel.astype( np.uint8 ), 2, np.pi / 180, hough_thresh ) )
+    left_lines = np.squeeze( cv.HoughLines( left_skel.astype( np.uint8 ), 2, np.pi / 180, hough_thresh ) )
+    right_lines = np.squeeze( cv.HoughLines( right_skel.astype( np.uint8 ), 2, np.pi / 180, hough_thresh ) )
     
     print( '# left lines:', len( left_lines ) )
     print( '# right lines:', len( right_lines ) )
     
     # # draw the hough lines
-    left_im_lines = cv2.cvtColor( left_img, cv2.COLOR_GRAY2RGB )
+    left_im_lines = cv.cvtColor( left_img, cv.COLOR_GRAY2RGB )
     for rho, theta in left_lines:
         a = np.cos( theta )
         b = np.sin( theta )
@@ -274,11 +284,11 @@ def _gridproc_stereo( left_img, right_img,
         x2 = int( x0 - 1000 * ( -b ) )
         y2 = int( y0 - 1000 * ( a ) )
 
-        cv2.line( left_im_lines, ( x1, y1 ), ( x2, y2 ), ( 255, 0, 0 ), 2 )
+        cv.line( left_im_lines, ( x1, y1 ), ( x2, y2 ), ( 255, 0, 0 ), 2 )
         
     # for
     
-    right_im_lines = cv2.cvtColor( right_img, cv2.COLOR_GRAY2RGB )
+    right_im_lines = cv.cvtColor( right_img, cv.COLOR_GRAY2RGB )
     for rho, theta in right_lines:
         a = np.cos( theta )
         b = np.sin( theta )
@@ -289,25 +299,25 @@ def _gridproc_stereo( left_img, right_img,
         x2 = int( x0 - 1000 * ( -b ) )
         y2 = int( y0 - 1000 * ( a ) )
 
-        cv2.line( right_im_lines, ( x1, y1 ), ( x2, y2 ), ( 255, 0, 0 ), 2 )
+        cv.line( right_im_lines, ( x1, y1 ), ( x2, y2 ), ( 255, 0, 0 ), 2 )
         
     # for
     
     # harris corner detection
-#     left_centroid = cv2.cornerHarris( left_open, 2, 5, 0.04 )
-#     left_centroid = cv2.dilate( left_centroid, None )
-#     _, left_corners = cv2.threshold( left_centroid, 0.2 * left_centroid.max(),
+#     left_centroid = cv.cornerHarris( left_open, 2, 5, 0.04 )
+#     left_centroid = cv.dilate( left_centroid, None )
+#     _, left_corners = cv.threshold( left_centroid, 0.2 * left_centroid.max(),
 #                                 255, 0 )
 #     left_corners = np.int0( left_corners )
 #      
-#     right_centroid = cv2.cornerHarris( right_open, 2, 5, 0.04 )
-#     right_centroid = cv2.dilate( right_centroid, None )
-#     _, right_corners = cv2.threshold( right_centroid, 0.2 * right_centroid.max(),
+#     right_centroid = cv.cornerHarris( right_open, 2, 5, 0.04 )
+#     right_centroid = cv.dilate( right_centroid, None )
+#     _, right_corners = cv.threshold( right_centroid, 0.2 * right_centroid.max(),
 #                                 255, 0 )
 #     right_corners = np.int0( right_corners )
 #     
-#     left_crnr = cv2.cvtColor( left_img, cv2.COLOR_GRAY2RGB )
-#     right_crnr = cv2.cvtColor( right_img, cv2.COLOR_GRAY2RGB )
+#     left_crnr = cv.cvtColor( left_img, cv.COLOR_GRAY2RGB )
+#     right_crnr = cv.cvtColor( right_img, cv.COLOR_GRAY2RGB )
 #     left_crnr[left_corners] = [255, 0, 0]
 #     right_crnr[right_corners] = [255, 0, 0]
     
@@ -362,8 +372,8 @@ def gridproc_stereo( left_img, right_img,
     ''' wrapper function to segment the grid out of a stereo pair '''
     # convert to grayscale if not already
     if left_img.ndim > 2:
-        left_img = cv2.cvtColor( left_img, cv2.COLOR_BGR2GRAY )
-        right_img = cv2.cvtColor( right_img, cv2.COLOR_BGR2GRAY )
+        left_img = cv.cvtColor( left_img, cv.COLOR_BGR2GRAY )
+        right_img = cv.cvtColor( right_img, cv.COLOR_BGR2GRAY )
 
     # if
     
@@ -375,8 +385,8 @@ def gridproc_stereo( left_img, right_img,
 #====================== STANDARD HOUGH TRANSFORM  ==============================
 #     # hough line transform
 #     hough_thresh = 450
-#     left_lines = np.squeeze( cv2.HoughLines( left_bo, 2, np.pi / 180, hough_thresh ) )
-#     right_lines = np.squeeze( cv2.HoughLines( right_bo, 2, np.pi / 180, hough_thresh ) )
+#     left_lines = np.squeeze( cv.HoughLines( left_bo, 2, np.pi / 180, hough_thresh ) )
+#     right_lines = np.squeeze( cv.HoughLines( right_bo, 2, np.pi / 180, hough_thresh ) )
 #     
 #     print( 'Hough Transform' )
 #     print( '# left lines:', len( left_lines ) )
@@ -384,7 +394,7 @@ def gridproc_stereo( left_img, right_img,
 #     print()
 #     
 #     # # draw the hough lines
-#     left_im_lines = cv2.cvtColor( left_img, cv2.COLOR_GRAY2RGB )
+#     left_im_lines = cv.cvtColor( left_img, cv.COLOR_GRAY2RGB )
 #     for rho, theta in left_lines:
 #         a = np.cos( theta )
 #         b = np.sin( theta )
@@ -395,11 +405,11 @@ def gridproc_stereo( left_img, right_img,
 #         x2 = int( x0 - 1000 * ( -b ) )
 #         y2 = int( y0 - 1000 * ( a ) )
 # 
-#         cv2.line( left_im_lines, ( x1, y1 ), ( x2, y2 ), ( 255, 0, 0 ), 2 )
+#         cv.line( left_im_lines, ( x1, y1 ), ( x2, y2 ), ( 255, 0, 0 ), 2 )
 #         
 #     # for
 #     
-#     right_im_lines = cv2.cvtColor( right_img, cv2.COLOR_GRAY2RGB )
+#     right_im_lines = cv.cvtColor( right_img, cv.COLOR_GRAY2RGB )
 #     for rho, theta in right_lines:
 #         a = np.cos( theta )
 #         b = np.sin( theta )
@@ -410,7 +420,7 @@ def gridproc_stereo( left_img, right_img,
 #         x2 = int( x0 - 1000 * ( -b ) )
 #         y2 = int( y0 - 1000 * ( a ) )
 # 
-#         cv2.line( right_im_lines, ( x1, y1 ), ( x2, y2 ), ( 255, 0, 0 ), 2 )
+#         cv.line( right_im_lines, ( x1, y1 ), ( x2, y2 ), ( 255, 0, 0 ), 2 )
 #         
 #     # for
 #===============================================================================
@@ -419,8 +429,8 @@ def gridproc_stereo( left_img, right_img,
     minlinelength = int( 0.8 * left_img.shape[1] )
     maxlinegap = 20
     hough_thresh = 100
-    left_linesp = np.squeeze( cv2.HoughLinesP( left_bo, 1, np.pi / 180, hough_thresh, minlinelength, maxlinegap ) )
-    right_linesp = np.squeeze( cv2.HoughLinesP( right_bo, 1, np.pi / 180, hough_thresh, minlinelength, maxlinegap ) )
+    left_linesp = np.squeeze( cv.HoughLinesP( left_bo, 1, np.pi / 180, hough_thresh, minlinelength, maxlinegap ) )
+    right_linesp = np.squeeze( cv.HoughLinesP( right_bo, 1, np.pi / 180, hough_thresh, minlinelength, maxlinegap ) )
     
     print( 'Probabilisitic Hough Transform' )
     print( "min. line length, max line gap: ", minlinelength, maxlinegap )
@@ -429,27 +439,27 @@ def gridproc_stereo( left_img, right_img,
     print()
     
     # # Draw probabilistic hough lines 
-    left_im_linesp = cv2.cvtColor( left_img, cv2.COLOR_GRAY2RGB )
+    left_im_linesp = cv.cvtColor( left_img, cv.COLOR_GRAY2RGB )
     left_houghp = np.zeros( left_im_linesp.shape[0:2], dtype = np.uint8 )
     for x1, y1, x2, y2 in left_linesp:
-        cv2.line( left_im_linesp, ( x1, y1 ), ( x2, y2 ), ( 255, 0, 0 ), 2 )
-        cv2.line( left_houghp, ( x1, y1 ), ( x2, y2 ), ( 255, 255, 255 ), 1 )
+        cv.line( left_im_linesp, ( x1, y1 ), ( x2, y2 ), ( 255, 0, 0 ), 2 )
+        cv.line( left_houghp, ( x1, y1 ), ( x2, y2 ), ( 255, 255, 255 ), 1 )
         
     # for
     
-    right_im_linesp = cv2.cvtColor( right_img, cv2.COLOR_GRAY2RGB )
+    right_im_linesp = cv.cvtColor( right_img, cv.COLOR_GRAY2RGB )
     right_houghp = np.zeros( right_im_linesp.shape[0:2], dtype = np.uint8 )
     for x1, y1, x2, y2 in right_linesp:
-        cv2.line( right_im_linesp, ( x1, y1 ), ( x2, y2 ), ( 255, 0, 0 ), 2 )
-        cv2.line( right_houghp, ( x1, y1 ), ( x2, y2 ), ( 255, 255, 255 ), 1 )
+        cv.line( right_im_linesp, ( x1, y1 ), ( x2, y2 ), ( 255, 0, 0 ), 2 )
+        cv.line( right_houghp, ( x1, y1 ), ( x2, y2 ), ( 255, 255, 255 ), 1 )
         
     # for
     
     # hough lines on prob. hough lines image
     # hough line transform
     hough_thresh = 100
-    left_lines2 = np.squeeze( cv2.HoughLines( left_houghp, 1, np.pi / 180, hough_thresh ) )
-    right_lines2 = np.squeeze( cv2.HoughLines( right_houghp, 1, np.pi / 180, hough_thresh ) )
+    left_lines2 = np.squeeze( cv.HoughLines( left_houghp, 1, np.pi / 180, hough_thresh ) )
+    right_lines2 = np.squeeze( cv.HoughLines( right_houghp, 1, np.pi / 180, hough_thresh ) )
     
     print( 'Hough Transform (2)' )
     print( '# left lines:', len( left_lines2 ) )
@@ -457,7 +467,7 @@ def gridproc_stereo( left_img, right_img,
     print()
     
     # # draw the hough lines
-    left_im_lines2 = cv2.cvtColor( left_img, cv2.COLOR_GRAY2RGB )
+    left_im_lines2 = cv.cvtColor( left_img, cv.COLOR_GRAY2RGB )
     for rho, theta in left_lines2:
         a = np.cos( theta )
         b = np.sin( theta )
@@ -468,11 +478,11 @@ def gridproc_stereo( left_img, right_img,
         x2 = int( x0 - 1000 * ( -b ) )
         y2 = int( y0 - 1000 * ( a ) )
 
-        cv2.line( left_im_lines2, ( x1, y1 ), ( x2, y2 ), ( 255, 0, 0 ), 2 )
+        cv.line( left_im_lines2, ( x1, y1 ), ( x2, y2 ), ( 255, 0, 0 ), 2 )
         
     # for
     
-    right_im_lines2 = cv2.cvtColor( right_img, cv2.COLOR_GRAY2RGB )
+    right_im_lines2 = cv.cvtColor( right_img, cv.COLOR_GRAY2RGB )
     for rho, theta in right_lines2:
         a = np.cos( theta )
         b = np.sin( theta )
@@ -483,7 +493,7 @@ def gridproc_stereo( left_img, right_img,
         x2 = int( x0 - 1000 * ( -b ) )
         y2 = int( y0 - 1000 * ( a ) )
 
-        cv2.line( right_im_lines2, ( x1, y1 ), ( x2, y2 ), ( 255, 0, 0 ), 2 )
+        cv.line( right_im_lines2, ( x1, y1 ), ( x2, y2 ), ( 255, 0, 0 ), 2 )
         
     # for
     
@@ -562,7 +572,7 @@ def load_stereoparams_matlab( param_file: str ):
     # for
     
     # projection matrices
-    R1, R2, P1, P2, Q, *_ = cv2.stereoRectify( stereo_params['cameraMatrix1'], stereo_params['distCoeffs1'],
+    R1, R2, P1, P2, Q, *_ = cv.stereoRectify( stereo_params['cameraMatrix1'], stereo_params['distCoeffs1'],
                                               stereo_params['cameraMatrix2'], stereo_params['distCoeffs2'],
                                               ( 768, 1024 ), stereo_params['R'], stereo_params['t'] )
     R = stereo_params['R']
@@ -609,11 +619,11 @@ def imgproc_jig( left_img, right_img, bor_l:list = [], bor_r:list = [],
     
     # convert to grayscale if not already
     if left_img.ndim > 2:
-        left_img = cv2.cvtColor( left_img, cv2.COLOR_BGR2GRAY )
+        left_img = cv.cvtColor( left_img, cv.COLOR_BGR2GRAY )
 
     # if
     if right_img.ndim > 2:
-        right_img = cv2.cvtColor( right_img, cv2.COLOR_BGR2GRAY )
+        right_img = cv.cvtColor( right_img, cv.COLOR_BGR2GRAY )
 
     # if
     
@@ -703,11 +713,11 @@ def imgproc_jig( left_img, right_img, bor_l:list = [], bor_r:list = [],
         cont_left = left_img.copy().astype( np.uint8 )
         cont_right = right_img.copy().astype( np.uint8 )
         
-        cont_left = cv2.cvtColor( cont_left, cv2.COLOR_GRAY2RGB )
-        cont_right = cv2.cvtColor( cont_right, cv2.COLOR_GRAY2RGB )
+        cont_left = cv.cvtColor( cont_left, cv.COLOR_GRAY2RGB )
+        cont_right = cv.cvtColor( cont_right, cv.COLOR_GRAY2RGB )
         
-        cv2.drawContours( cont_left, conts_l, -1, ( 255, 0, 0 ), 3 )
-        cv2.drawContours( cont_right, conts_r, -1, ( 255, 0, 0 ), 3 )
+        cv.drawContours( cont_left, conts_l, -1, ( 255, 0, 0 ), 3 )
+        cv.drawContours( cont_right, conts_r, -1, ( 255, 0, 0 ), 3 )
         plt.figure()
         plt.imshow( imconcat( cont_left, cont_right, [0, 0, 255] ) )
         plt.title( 'contours' )
@@ -716,19 +726,19 @@ def imgproc_jig( left_img, right_img, bor_l:list = [], bor_r:list = [],
         # cont_l_filt = [np.vstack( ( pts_l_in, np.flip( pts_l_in, axis = 0 ) ) ).astype( int )]
         # cont_r_filt = [np.vstack( ( pts_r_in, np.flip( pts_r_in, axis = 0 ) ) ).astype( int )]
         # 
-        # cv2.drawContours( cont_left, cont_l_filt, -1, ( 255, 0, 0 ), 6 )
-        # cv2.drawContours( cont_right, cont_r_filt, -1, ( 255, 0, 0 ), 6 )
+        # cv.drawContours( cont_left, cont_l_filt, -1, ( 255, 0, 0 ), 6 )
+        # cv.drawContours( cont_right, cont_r_filt, -1, ( 255, 0, 0 ), 6 )
         # 
-        # cv2.drawContours( cont_left, conts_l, 0, ( 0, 255, 0 ), 3 )
-        # cv2.drawContours( cont_right, conts_r, 0, ( 0, 255, 0 ), 3 )
+        # cv.drawContours( cont_left, conts_l, 0, ( 0, 255, 0 ), 3 )
+        # cv.drawContours( cont_right, conts_r, 0, ( 0, 255, 0 ), 3 )
         # 
         # plt.figure()
         # plt.imshow( imconcat( cont_left, cont_right, 150 ), cmap = 'gray' )
         # plt.title( 'contours' )
         # 
         # impad = 20
-        # bspl_left_img = cv2.cvtColor( left_img.copy().astype( np.uint8 ), cv2.COLOR_GRAY2RGB )
-        # bspl_right_img = cv2.cvtColor( right_img.copy().astype( np.uint8 ), cv2.COLOR_GRAY2RGB )
+        # bspl_left_img = cv.cvtColor( left_img.copy().astype( np.uint8 ), cv.COLOR_GRAY2RGB )
+        # bspl_right_img = cv.cvtColor( right_img.copy().astype( np.uint8 ), cv.COLOR_GRAY2RGB )
         # 
         # plt.figure()
         # plt.imshow( imconcat( bspl_left_img, bspl_right_img, [0, 0, 255], pad_size = impad ) )
@@ -766,8 +776,8 @@ def imgproc_jig( left_img, right_img, bor_l:list = [], bor_r:list = [],
 
 
 def median_blur( left_thresh, right_thresh, ksize = 11 ):
-    left_med = cv2.medianBlur( left_thresh, ksize )
-    right_med = cv2.medianBlur( right_thresh, ksize )
+    left_med = cv.medianBlur( left_thresh, ksize )
+    right_med = cv.medianBlur( right_thresh, ksize )
     
     return left_med, right_med
 
@@ -844,8 +854,8 @@ def needleproc_stereo( left_img, right_img,
     
     # convert to grayscale if not already
     if left_img.ndim > 2:
-        left_img = cv2.cvtColor( left_img, cv2.COLOR_BGR2GRAY )
-        right_img = cv2.cvtColor( right_img, cv2.COLOR_BGR2GRAY )
+        left_img = cv.cvtColor( left_img, cv.COLOR_BGR2GRAY )
+        right_img = cv.cvtColor( right_img, cv.COLOR_BGR2GRAY )
 
     # if
     
@@ -909,11 +919,11 @@ def needleproc_stereo( left_img, right_img,
         cont_left = left_img.copy().astype( np.uint8 )
         cont_right = right_img.copy().astype( np.uint8 )
         
-        cont_left = cv2.cvtColor( cont_left, cv2.COLOR_GRAY2RGB )
-        cont_right = cv2.cvtColor( cont_right, cv2.COLOR_GRAY2RGB )
+        cont_left = cv.cvtColor( cont_left, cv.COLOR_GRAY2RGB )
+        cont_right = cv.cvtColor( cont_right, cv.COLOR_GRAY2RGB )
         
-        cv2.drawContours( cont_left, conts_l, 0, ( 255, 0, 0 ), 3 )
-        cv2.drawContours( cont_right, conts_r, 0, ( 255, 0, 0 ), 3 )
+        cv.drawContours( cont_left, conts_l, 0, ( 255, 0, 0 ), 3 )
+        cv.drawContours( cont_right, conts_r, 0, ( 255, 0, 0 ), 3 )
         
         plt.figure()
         plt.imshow( imconcat( cont_left, cont_right, 150 ) )
@@ -957,10 +967,10 @@ def roi( img, roi, full:bool = True ):
         zval = 0 if img.ndim == 2 else np.array( [0, 0, 0] )
         
         # zero out values
-        img_roi [:tl_i, :] = zval
-        img_roi [br_i:, :] = zval
+        img_roi [:tl_i,:] = zval
+        img_roi [br_i:,:] = zval
         
-        img_roi [:, :tl_j] = zval
+        img_roi [:,:tl_j] = zval
         img_roi [:, br_j:] = zval
         
     # if
@@ -973,6 +983,16 @@ def roi( img, roi, full:bool = True ):
     return img_roi 
 
 # roi
+
+
+def roi_image( reg_of_int, image_size ):
+    roi_bool = np.ones( image_size[:2], dtype = bool )
+    
+    roi_bool = roi( roi_bool, reg_of_int ).astype( bool )
+    
+    return roi_bool
+    
+# roi_image
 
 
 def skeleton( left_bin, right_bin ):
@@ -997,7 +1017,7 @@ def stereo_disparity( left_gray, right_gray, stereo_params: dict ):
     win_size = 5
     
     left_gauss, right_gauss = gauss_blur( left_gray, right_gray, ksize = ( 1, 1 ) )
-    stereo = cv2.StereoSGBM_create( numDisparities = 64,
+    stereo = cv.StereoSGBM_create( numDisparities = 64,
                                     blockSize = win_size,
                                     speckleRange = 2, speckleWindowSize = 5,
                                     P1 = 8 * 3 * win_size ** 2,
@@ -1214,7 +1234,7 @@ def triangulate_points( pts_l, pts_r, stereo_params: dict, distorted:bool = Fals
     pts_r = pts_r.T
     
     # perform triangulation of the points
-    pts_3d = cv2.triangulatePoints( Pl, Pr, pts_l, pts_r )
+    pts_3d = cv.triangulatePoints( Pl, Pr, pts_l, pts_r )
     pts_3d /= pts_3d[3]  # normalize the triangulation points
 
     return pts_3d[:-1]
@@ -1227,17 +1247,17 @@ def thresh( left_img, right_img, thresh = 'adapt' ):
     
     if isinstance( thresh, str ):
         if thresh.lower() == 'adapt':
-            left_thresh = cv2.adaptiveThreshold( left_img.astype( np.uint8 ), 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                                cv2.THRESH_BINARY_INV, 13, 4 )
-            right_thresh = cv2.adaptiveThreshold( right_img.astype( np.uint8 ), 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                                cv2.THRESH_BINARY_INV, 13, 4 )
+            left_thresh = cv.adaptiveThreshold( left_img.astype( np.uint8 ), 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                                cv.THRESH_BINARY_INV, 13, 4 )
+            right_thresh = cv.adaptiveThreshold( right_img.astype( np.uint8 ), 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                                cv.THRESH_BINARY_INV, 13, 4 )
             
         # if
     # if
     
     elif isinstance( thresh, ( float, int ) ):
-        _, left_thresh = cv2.threshold( left_img, thresh, 255, cv2.THRESH_BINARY_INV )
-        _, right_thresh = cv2.threshold( right_img, thresh, 255, cv2.THRESH_BINARY_INV )
+        _, left_thresh = cv.threshold( left_img, thresh, 255, cv.THRESH_BINARY_INV )
+        _, right_thresh = cv.threshold( right_img, thresh, 255, cv.THRESH_BINARY_INV )
         
     # elif
     
@@ -1260,14 +1280,14 @@ def undistort( left_img, right_img, stereo_params:dict ):
     
     # undistort/recitfy the images
     hgtl, wdtl = left_img.shape[:2]
-    Kl_new, roi = cv2.getOptimalNewCameraMatrix( Kl, distl, ( wdtl, hgtl ), 1, ( wdtl, hgtl ) )
+    Kl_new, roi = cv.getOptimalNewCameraMatrix( Kl, distl, ( wdtl, hgtl ), 1, ( wdtl, hgtl ) )
     xl, yl, wl, hl = roi
-    left_img_rect = cv2.undistort( left_img, Kl, distl, None, Kl_new )[yl:yl + hl, xl:xl + wl]
+    left_img_rect = cv.undistort( left_img, Kl, distl, None, Kl_new )[yl:yl + hl, xl:xl + wl]
     
     hgtr, wdtr = right_img.shape[:2]
-    Kr_new, roi = cv2.getOptimalNewCameraMatrix( Kr, distr, ( wdtr, hgtr ), 1, ( wdtr, hgtr ) )
+    Kr_new, roi = cv.getOptimalNewCameraMatrix( Kr, distr, ( wdtr, hgtr ), 1, ( wdtr, hgtr ) )
     xr, yr, wr, hr = roi
-    right_img_rect = cv2.undistort( right_img, Kr, distr, None, Kr_new )[yr:yr + hr, xr:xr + wr]
+    right_img_rect = cv.undistort( right_img, Kr, distr, None, Kr_new )[yr:yr + hr, xr:xr + wr]
     
     return left_img_rect, right_img_rect
     
@@ -1288,16 +1308,16 @@ def undistort_points( pts_l, pts_r, stereo_params:dict ):
     distr = stereo_params['distCoeffs2']
     
     # calculate optimal camera matrix
-    Kl_new, _ = cv2.getOptimalNewCameraMatrix( Kl, distl, IMAGE_SIZE, 1, IMAGE_SIZE )
-    Kr_new, _ = cv2.getOptimalNewCameraMatrix( Kr, distr, IMAGE_SIZE, 1, IMAGE_SIZE )
+    Kl_new, _ = cv.getOptimalNewCameraMatrix( Kl, distl, IMAGE_SIZE, 1, IMAGE_SIZE )
+    Kr_new, _ = cv.getOptimalNewCameraMatrix( Kr, distr, IMAGE_SIZE, 1, IMAGE_SIZE )
     
     stereo_params['cameraMatrix1_new'] = Kl_new
     stereo_params['cameraMatrix2_new'] = Kr_new
     
     # undistort the image points
-    pts_l_undist = cv2.undistortPoints( np.expand_dims( pts_l, 1 ), Kl, distl,
+    pts_l_undist = cv.undistortPoints( np.expand_dims( pts_l, 1 ), Kl, distl,
                                         None, Kl_new ).squeeze()
-    pts_r_undist = cv2.undistortPoints( np.expand_dims( pts_r, 1 ), Kr, distr,
+    pts_r_undist = cv.undistortPoints( np.expand_dims( pts_r, 1 ), Kr, distr,
                                         None, Kr_new ).squeeze()
     
     return pts_l_undist, pts_r_undist
@@ -1322,10 +1342,10 @@ def main_dbg():
     stereo_params = load_stereoparams_matlab( stereo_param_file )
     
 #     # read in the images and convert to grayscale
-#     left_img = cv2.imread( left_fimg, cv2.IMREAD_COLOR )
-#     right_img = cv2.imread( right_fimg, cv2.IMREAD_COLOR )
-#     left_gray = cv2.cvtColor( left_img, cv2.COLOR_BGR2GRAY )
-#     right_gray = cv2.cvtColor( right_img, cv2.COLOR_BGR2GRAY )
+#     left_img = cv.imread( left_fimg, cv.IMREAD_COLOR )
+#     right_img = cv.imread( right_fimg, cv.IMREAD_COLOR )
+#     left_gray = cv.cvtColor( left_img, cv.COLOR_BGR2GRAY )
+#     right_gray = cv.cvtColor( right_img, cv.COLOR_BGR2GRAY )
      
 #     # test undistort function ( GOOD )
 #     left_rect, right_rect = undistort( left_img, right_img, stereo_params )
@@ -1340,9 +1360,9 @@ def main_dbg():
     Pl = stereo_params['P1']
     Pr = stereo_params['P2']
     pts_l = Pl @ world_pointsh
-    pts_l = ( pts_l / pts_l[-1] ).T[:, :-1]
+    pts_l = ( pts_l / pts_l[-1] ).T[:,:-1]
     pts_r = Pr @ world_pointsh
-    pts_r = ( pts_r / pts_r[-1] ).T[:, :-1]
+    pts_r = ( pts_r / pts_r[-1] ).T[:,:-1]
     
     print( 'pts shape (l,r):', pts_l.shape, pts_r.shape )
     tri_pts = triangulate_points( pts_l, pts_r, stereo_params, distorted = False )
@@ -1382,14 +1402,14 @@ def main_img_gui( file_num, img_dir ):
     left_file = img_dir + f'left-{file_num:04d}.png'
     right_file = img_dir + f'right-{file_num:04d}.png'
     
-    left_img = cv2.imread( left_file, cv2.IMREAD_ANYCOLOR )
-    right_img = cv2.imread( right_file, cv2.IMREAD_ANYCOLOR )
+    left_img = cv.imread( left_file, cv.IMREAD_ANYCOLOR )
+    right_img = cv.imread( right_file, cv.IMREAD_ANYCOLOR )
     
     f = 2
     dsize = ( left_img.shape[1] // f, right_img.shape[0] // f )
     
-    left_img = cv2.resize( left_img, dsize, fx = f, fy = f )
-    right_img = cv2.resize( right_img, dsize, fx = f, fy = f )
+    left_img = cv.resize( left_img, dsize, fx = f, fy = f )
+    right_img = cv.resize( right_img, dsize, fx = f, fy = f )
     
     lr_img = imconcat( left_img, right_img, [255, 0, 0] )
     
@@ -1411,17 +1431,17 @@ def main_gridproc( num, img_dir, save_dir ):
     left_fimg = img_dir + f"left-{num:04d}.png"
     right_fimg = img_dir + f"right-{num:04d}.png"
     
-    left_img = cv2.imread( left_fimg, cv2.IMREAD_COLOR )
-    right_img = cv2.imread( right_fimg, cv2.IMREAD_COLOR )
-    left_gray = cv2.cvtColor( left_img, cv2.COLOR_BGR2GRAY )
-    right_gray = cv2.cvtColor( right_img, cv2.COLOR_BGR2GRAY )
-    left_img2 = cv2.cvtColor( left_img, cv2.COLOR_RGB2BGR )
-    right_img2 = cv2.cvtColor( right_img, cv2.COLOR_RGB2BGR )
+    left_img = cv.imread( left_fimg, cv.IMREAD_COLOR )
+    right_img = cv.imread( right_fimg, cv.IMREAD_COLOR )
+    left_gray = cv.cvtColor( left_img, cv.COLOR_BGR2GRAY )
+    right_gray = cv.cvtColor( right_img, cv.COLOR_BGR2GRAY )
+    left_img2 = cv.cvtColor( left_img, cv.COLOR_RGB2BGR )
+    right_img2 = cv.cvtColor( right_img, cv.COLOR_RGB2BGR )
     
     # color segmentation ( red for border )
     lmask, rmask, lcolor2, rcolor2 = color_segmentation( left_img2, right_img2, "red" )
-    lcolor = cv2.cvtColor( lcolor2, cv2.COLOR_BGR2RGB )
-    rcolor = cv2.cvtColor( rcolor2, cv2.COLOR_BGR2RGB )
+    lcolor = cv.cvtColor( lcolor2, cv.COLOR_BGR2RGB )
+    rcolor = cv.cvtColor( rcolor2, cv.COLOR_BGR2RGB )
     
     # plotting
     plt.ion()
@@ -1461,10 +1481,10 @@ def main_needleproc( file_num, img_dir, save_dir = None, proc_show = False, res_
     left_fimg = img_dir + f"left-{file_num:04d}.png"
     right_fimg = img_dir + f"right-{file_num:04d}.png"
     
-    left_img = cv2.imread( left_fimg, cv2.IMREAD_COLOR )
-    right_img = cv2.imread( right_fimg, cv2.IMREAD_COLOR )
-    left_gray = cv2.cvtColor( left_img, cv2.COLOR_BGR2GRAY )
-    right_gray = cv2.cvtColor( right_img, cv2.COLOR_BGR2GRAY )
+    left_img = cv.imread( left_fimg, cv.IMREAD_COLOR )
+    right_img = cv.imread( right_fimg, cv.IMREAD_COLOR )
+    left_gray = cv.cvtColor( left_img, cv.COLOR_BGR2GRAY )
+    right_gray = cv.cvtColor( right_img, cv.COLOR_BGR2GRAY )
     
     print( 'Image shape:', left_gray.shape, end = '\n\n' + 80 * '=' + '\n\n' )
     
@@ -1485,27 +1505,27 @@ def main_needleproc( file_num, img_dir, save_dir = None, proc_show = False, res_
     print( 'Stereo pair processed. Contours extracted.', end = '\n\n' + 80 * '=' + '\n\n' )
 
     left_cont = left_img.copy()
-    left_cont = cv2.drawContours( left_cont, conts_l, 0, ( 255, 0, 0 ), 12 )
+    left_cont = cv.drawContours( left_cont, conts_l, 0, ( 255, 0, 0 ), 12 )
     
     right_cont = right_img.copy()
-    right_cont = cv2.drawContours( right_cont, conts_r, 0, ( 255, 0, 0 ), 12 )
+    right_cont = cv.drawContours( right_cont, conts_r, 0, ( 255, 0, 0 ), 12 )
     
     # matching contours
     print( 'Performing stereo triangulation...' )
     cont_l_match, cont_r_match = stereomatch_needle( conts_l[0], conts_r[0], start_location = 'tip', col = 1 )
     
     left_match = left_cont.copy()
-    cv2.drawContours( left_match, [np.vstack( ( cont_l_match, np.flip( cont_l_match, 0 ) ) )], 0, ( 0, 255, 0 ), 4 )
+    cv.drawContours( left_match, [np.vstack( ( cont_l_match, np.flip( cont_l_match, 0 ) ) )], 0, ( 0, 255, 0 ), 4 )
     
     right_match = right_cont.copy()
-    cv2.drawContours( right_match, [np.vstack( ( cont_r_match, np.flip( cont_r_match, 0 ) ) )], 0, ( 0, 255, 0 ), 4 )
+    cv.drawContours( right_match, [np.vstack( ( cont_r_match, np.flip( cont_r_match, 0 ) ) )], 0, ( 0, 255, 0 ), 4 )
     
     # draw lines from matching points
     plot_pt_freq = int( 0.1 * len( cont_l_match ) )
     pad_width = 20
     lr_match = imconcat( left_match, right_match, pad_val = [0, 0, 255], pad_size = pad_width )
     for ( x_l, y_l ), ( x_r, y_r ) in zip( cont_l_match[::plot_pt_freq ], cont_r_match[::plot_pt_freq ] ):
-        cv2.line( lr_match, ( x_l, y_l ), ( x_r + pad_width + right_match.shape[1], y_r ), [255, 0, 255], 2 )
+        cv.line( lr_match, ( x_l, y_l ), ( x_r + pad_width + right_match.shape[1], y_r ), [255, 0, 255], 2 )
         
     # for
     
@@ -1685,15 +1705,15 @@ def main_needleval( file_nums, img_dir, stereo_params, save_dir = None,
     
     # load in the pre-determined ROIs
     rois_rl = np.load( img_dir + 'rois_lr.npy' )
-    rois_l = rois_rl[:, :, 0:2].tolist()
-    rois_r = rois_rl[:, :, 2:4].tolist()
+    rois_l = rois_rl[:,:, 0:2].tolist()
+    rois_r = rois_rl[:,:, 2:4].tolist()
     
     for img_num in file_nums:
         # left-right stereo pairs
         left_file = img_dir + f'left-{img_num:04d}.png'
         right_file = img_dir + f'right-{img_num:04d}.png'
-        left_img = cv2.imread( left_file, cv2.IMREAD_ANYCOLOR )
-        right_img = cv2.imread( right_file, cv2.IMREAD_ANYCOLOR )
+        left_img = cv.imread( left_file, cv.IMREAD_ANYCOLOR )
+        right_img = cv.imread( right_file, cv.IMREAD_ANYCOLOR )
         
         # image read check
         if ( left_img is None ) or ( right_img is None ):
@@ -1740,18 +1760,18 @@ def main_needleval( file_nums, img_dir, stereo_params, save_dir = None,
         # - draw contour matching
         left_cont = left_img.copy()
         np.vstack( ( pts_l, np.flip( pts_l, axis = 0 ) ) ).astype( int )
-        left_cont = cv2.drawContours( left_cont, [np.vstack( ( pts_l, np.flip( pts_l, axis = 0 ) ) ).astype( int )],
+        left_cont = cv.drawContours( left_cont, [np.vstack( ( pts_l, np.flip( pts_l, axis = 0 ) ) ).astype( int )],
                                       0, ( 255, 0, 0 ), 12 )
         
         right_cont = right_img.copy()
-        right_cont = cv2.drawContours( right_cont, [np.vstack( ( pts_r, np.flip( pts_r, axis = 0 ) ) ).astype( int )],
+        right_cont = cv.drawContours( right_cont, [np.vstack( ( pts_r, np.flip( pts_r, axis = 0 ) ) ).astype( int )],
                                        0, ( 255, 0, 0 ), 12 )
         left_match = left_cont.copy()
-        cv2.drawContours( left_match, [np.vstack( ( cont_l_match, np.flip( cont_l_match, 0 ) ) ).astype( int )],
+        cv.drawContours( left_match, [np.vstack( ( cont_l_match, np.flip( cont_l_match, 0 ) ) ).astype( int )],
                            0, ( 0, 255, 0 ), 4 )
         
         right_match = right_cont.copy()
-        cv2.drawContours( right_match, [np.vstack( ( cont_r_match, np.flip( cont_r_match, 0 ) ) ).astype( int )],
+        cv.drawContours( right_match, [np.vstack( ( cont_r_match, np.flip( cont_r_match, 0 ) ) ).astype( int )],
                            0, ( 0, 255, 0 ), 4 )
         
         # -- draw lines from matching points
@@ -1759,7 +1779,7 @@ def main_needleval( file_nums, img_dir, stereo_params, save_dir = None,
         pad_width = 20
         lr_match = imconcat( left_match, right_match, pad_val = [0, 0, 255], pad_size = pad_width )
         for ( x_l, y_l ), ( x_r, y_r ) in zip( cont_l_match[::plot_pt_freq ], cont_r_match[::plot_pt_freq ] ):
-            cv2.line( lr_match, ( int( x_l ), int( y_l ) ),
+            cv.line( lr_match, ( int( x_l ), int( y_l ) ),
                       ( int( x_r ) + pad_width + right_match.shape[1], int( y_r ) ),
                       [255, 0, 255], 2 )
             
