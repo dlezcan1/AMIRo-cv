@@ -57,6 +57,16 @@ def axisEqual3D( ax ):
 
 
 def blackout( img, tl, br ):
+    # handle negative indices
+    for i, (tl_i, br_i) in enumerate(zip(tl, br)):
+        if tl_i < 0:
+            tl[i] = img.shape[i] + tl_i + 1
+            
+        if br_i < 0:
+            br[i] = img.shape[i] + br_i + 1
+            
+    # for
+    
     img[tl[0]:br[0], tl[1]:br[1]] = 0
     
     return img
