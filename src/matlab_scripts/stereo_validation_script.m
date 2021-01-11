@@ -22,8 +22,10 @@ for i = 1:length(curvature_dirs)
     disp(img_nums);
     
     for img_num = img_nums
+        fprintf('Processing img #%04d\n', img_num);
         stereo_validation(img_num, curv_dir, 'save_dir', curv_dir);
         pause(1);
+        disp(' ');
     end  
 
     fprintf('Completed.\n\n' );
@@ -36,7 +38,7 @@ function img_nums = get_stereo_numbers(curv_dir)
     re_patt = "left-right-([0-9]{4})";
     
     % grab files
-    nurb_files = dir(curv_dir + "left-right-*_nurbs-pts.txt");
+    nurb_files = dir(curv_dir + "left-right-*_3d-pts.txt");
     
     % find the image numbers
     img_nums = [];
