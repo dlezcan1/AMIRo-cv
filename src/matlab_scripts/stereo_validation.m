@@ -16,7 +16,7 @@ function [nurbs_interp_tf, jig_shape] = stereo_validation(file_num, curv_dir, kw
     %% File Preparation
     base_file = curv_dir + sprintf("left-right-%04d_", file_num) + "%s.%s";
 %     nurbs_file = curv_dir + sprintf("left-right-%04d_nurbs-pts.txt", file_num);
-    nurbs_file = sprintf(base_file, "nurbs-pts", "txt");
+    nurbs_file = sprintf(base_file, "3d-pts", "txt");
     
     % check if the files exist
     if exist(nurbs_file, 'file') ~= 2

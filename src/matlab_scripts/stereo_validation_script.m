@@ -6,7 +6,7 @@
 % - written by: Dimitri Lezcano
 
 %% Set-up
-data_dir = "../../Test_Images/stereo_needle/stereo_validation_jig/";
+data_dir = "../../data/stereo_validation_jig/";
 curvature_dirs = data_dir + ls(data_dir + "k_*") + "/"; 
 
 % regex set-up

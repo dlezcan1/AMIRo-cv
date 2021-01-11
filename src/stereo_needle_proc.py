@@ -873,7 +873,7 @@ def needle_jig_reconstruction( img_left, img_right, stereo_params,
     # # black-out regions
     left_roibo = blackout_regions( left_roi, bor_l )
     right_roibo = blackout_regions( right_roi, bor_r )
-    ret_images['roi-bo'] = imconcat( left_roibo, right_roibo, [0, 0, 255])
+    ret_images['roi-bo'] = imconcat( left_roibo, right_roibo, [0, 0, 255] )
     
     # stereo rectify the images
     left_rect, right_rect, _, map_l, map_r = stereo_rectify( left_roibo, right_roibo, stereo_params,
@@ -902,7 +902,7 @@ def needle_jig_reconstruction( img_left, img_right, stereo_params,
     
     # get the contours and filter out outliers
     left_skel, right_skel = skeleton( left_thresh, right_thresh )
-    ret_images['skel-rect'] = imconcat( 255*left_skel.astype(np.uint8), 255*right_skel.astype(np.uint8), 125 )
+    ret_images['skel-rect'] = imconcat( 255 * left_skel.astype( np.uint8 ), 255 * right_skel.astype( np.uint8 ), 125 )
     conts_l, conts_r = contours( left_skel, right_skel )
     
     # # outlier options
@@ -1864,23 +1864,32 @@ def main_needleval( file_nums, img_dir, stereo_params, save_dir = None,
         # if
         
         # stereo image processing
+        # # blackout regions
         if k < 2.0:
             bor_l = [[[0, left_img.shape[1] // 2], [-1, -1]]]
             bor_r = [[[0, right_img.shape[1] // 2], [-1, -1]]]
             
-        elif k == 2.0:
-            bor_l = [[[0, 0], [-1, left_img.shape[1] // 4]],
-                      [0, 3 * left_img.shape[1] // 4], [-1, -1]]
-            bor_r = [[[0, 0], [-1, right_img.shape[1] // 4]],
-                      [0, 3 * right_img.shape[1] // 4], [-1, -1]]
+        # if
             
+        elif k == 2.0:
+            bor_l = [[[0, 0], [-1, right_img.shape[1] // 3]],
+                     [[0, 2 * right_img.shape[1] // 3], [-1, -1]]]
+            bor_r = [[[0, 0], [-1, right_img.shape[1] // 3]],
+                     [[0, 2 * right_img.shape[1] // 3], [-1, -1]]]
+        
+        # elif    
+        
         elif k <= 4.5:
             bor_l = [[[0, 0], [-1, left_img.shape[1] // 3]]]
             bor_r = [[[0, 0], [-1, right_img.shape[1] // 3]]]
             
+        # elif
+            
         else:
             bor_l = []
             bor_r = []
+            
+        # else
             
         roi_l = tuple( rois_l[img_num] )
         roi_r = tuple( rois_r[img_num] )
@@ -1915,7 +1924,7 @@ def main_needleval( file_nums, img_dir, stereo_params, save_dir = None,
 #                                           ( 255 * imgs[1] / imgs[1].max() ).astype( np.uint8 ), 125 ) )
 #                     
 #                 # elif
-                cv.imwrite(save_fbase.format(key) + '.png', imgs)
+                cv.imwrite( save_fbase.format( key ) + '.png', imgs )
                 print( 'Saved figure:', save_fbase.format( key ) + '.png' )    
                 
             # for: images
@@ -1988,11 +1997,10 @@ if __name__ == '__main__':
                                 save_dir = curv_dir, proc_show = False, res_show = False )
             
             # try
-            
+             
             except Exception as e:
                 print( e )
                 print( 'Continuing...' )
-                continue
                     
             # except
             
