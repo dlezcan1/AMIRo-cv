@@ -43,7 +43,7 @@ function img_nums = get_stereo_numbers(curv_dir)
     for i = 1:length(nurb_files)
         match = regexp(nurb_files(i).name, re_patt, 'tokens');
         if ~isempty(match)
-            num = str2num(match{1}{1});
+            num = str2double(match{1}{1});
             img_nums = [img_nums, num];
             
         end
