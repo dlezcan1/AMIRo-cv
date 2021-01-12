@@ -923,6 +923,10 @@ def needle_jig_reconstruction( img_left, img_right, stereo_params,
                                                  outlier_thresh = out_thresh,
                                                  num_neigbors = n_neigh )
     
+    left_rect_draw = cv.polylines( left_rect.copy(), [pts_l.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+    right_rect_draw = cv.polylines( right_rect.copy(), [pts_r.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+    ret_images['contours'] = imconcat(left_rect_draw, right_rect_draw, [0, 0, 255])
+    
     # stereo matching
     pts_l_match, pts_r_match = stereomatch_needle( pts_l, pts_r, method = 'disparity',
                                                    bspline_l = bspline_l, bspline_r = bspline_r )
@@ -947,8 +951,7 @@ def needle_jig_reconstruction( img_left, img_right, stereo_params,
         plt.imshow( imconcat( left_skel, right_skel, 125 ), cmap = 'gray' )
         plt.title( 'Skeletonized threshold' )
         
-        left_rect_draw = cv.polylines( left_rect.copy(), [pts_l.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
-        right_rect_draw = cv.polylines( right_rect.copy(), [pts_r.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+        
         plt.figure( figsize = ( 12, 8 ) )
         plt.imshow( imconcat( left_rect_draw, right_rect_draw, [255, 0, 0] ) )
         plt.title( 'centerline points' )
@@ -1986,6 +1989,9 @@ if __name__ == '__main__':
     warnings.filterwarnings( 'ignore', message = '.*ndarray.*' )
     if validation:
         for curv_dir in curvature_dir:
+#             if 'k_4.0' not in curv_dir:
+#                 continue
+            
             # gather curvature file numbers
             files = sorted( glob.glob( curv_dir + 'left-*.png' ) )
             file_nums = [int( re.match( pattern, f ).group( 2 ) ) for f in files if re.match( pattern, f )]
