@@ -2205,7 +2205,8 @@ def main_needleval( file_nums, img_dir, stereo_params, save_dir = None,
                                                                              bor_l = bor_l, bor_r = bor_r,
                                                                              roi_l = roi_l, roi_r = roi_r,
                                                                              alpha = 0.5, recalc_stereo = True,
-                                                                             proc_show = proc_show, zoom = 10 )
+                                                                             proc_show = proc_show, zoom = 10,
+                                                                             winsize = ( 41, 41 ) )
         
         # save the processed images
         if save_dir:
@@ -2247,7 +2248,7 @@ def main_needleval( file_nums, img_dir, stereo_params, save_dir = None,
             
         # if
         
-        print( f'Completed stereo_pair {img_num:04d}.' )
+        print( f'Completed stereo pair {img_num:04d}.' )
         print( '\n' + 75 * '=', end = '\n\n' )
         plt.close( 'all' )
         
