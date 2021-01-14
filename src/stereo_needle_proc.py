@@ -925,7 +925,7 @@ def needle_jig_reconstruction( img_left, img_right, stereo_params,
     
     left_rect_draw = cv.polylines( left_rect.copy(), [pts_l.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
     right_rect_draw = cv.polylines( right_rect.copy(), [pts_r.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
-    ret_images['contours'] = imconcat(left_rect_draw, right_rect_draw, [0, 0, 255])
+    ret_images['contours'] = imconcat( left_rect_draw, right_rect_draw, [0, 0, 255] )
     
     # stereo matching
     pts_l_match, pts_r_match = stereomatch_needle( pts_l, pts_r, method = 'disparity',
@@ -951,7 +951,6 @@ def needle_jig_reconstruction( img_left, img_right, stereo_params,
         plt.imshow( imconcat( left_skel, right_skel, 125 ), cmap = 'gray' )
         plt.title( 'Skeletonized threshold' )
         
-        
         plt.figure( figsize = ( 12, 8 ) )
         plt.imshow( imconcat( left_rect_draw, right_rect_draw, [255, 0, 0] ) )
         plt.title( 'centerline points' )
@@ -972,6 +971,137 @@ def needle_jig_reconstruction( img_left, img_right, stereo_params,
     return pts_3d, pts_l, pts_r, bspline_l, bspline_r, ret_images, figures
     
 # needle_jig_reconstruction
+
+
+def needle_jig_reconstruction_refined( img_left, img_right, stereo_params,
+                                       bor_l:list = [], bor_r:list = [],
+                                       roi_l = (), roi_r = (),
+                                       alpha: float = 0.5, recalc_stereo:bool = False,
+                                       zoom: float = 1.0, winsize:tuple = ( 31, 21 ),
+                                       proc_show: bool = False ):
+    ''' This is function for performing a 3-D needle reconstruction from a raw stereo pair'''
+    # prepare images
+    # # roi the images
+    left_roi = roi( img_left, roi_l, full = True )
+    right_roi = roi( img_right, roi_r, full = True )
+    
+    # # black-out regions
+    left_roibo = blackout_regions( left_roi, bor_l )
+    right_roibo = blackout_regions( right_roi, bor_r )
+    imgs_ret = {'roibo': ( left_roibo, right_roibo )}
+    
+    # stereo rectify the images
+    left_rect, right_rect, _, map_l, map_r = stereo_rectify( left_roibo, right_roibo, stereo_params,
+                                                                       interp_method = cv.INTER_LINEAR, alpha = alpha,
+                                                                       force_recalc = recalc_stereo )
+    imgs_ret['rect'] = ( left_rect, right_rect )
+    
+    # # map the rois
+    boroi_l_img = roi_image( roi_l, img_left.shape ) & blackout_image( bor_l, img_left.shape )
+    boroi_r_img = roi_image( roi_r, img_right.shape ) & blackout_image( bor_r, img_right.shape )
+    imgs_ret['boroi-bool'] = ( boroi_l_img, boroi_r_img )
+    
+    boroi_l_mapped = cv.remap( boroi_l_img.astype( np.uint8 ), map_l[0], map_l[1], cv.INTER_NEAREST )
+    boroi_r_mapped = cv.remap( boroi_r_img.astype( np.uint8 ), map_r[0], map_r[1], cv.INTER_NEAREST )
+    imgs_ret['boroi-bool-mapped'] = ( boroi_l_mapped, boroi_r_mapped )
+    
+    # perform image processing on rectified images
+    left_gray = cv.cvtColor( left_rect, cv.COLOR_BGR2GRAY )
+    right_gray = cv.cvtColor( right_rect, cv.COLOR_BGR2GRAY )
+    imgs_ret['gray-rect'] = ( left_gray, right_gray )
+    left_thresh, right_thresh = thresh( left_gray, right_gray, thresh = 50 )
+    
+    # # remove extra borders threshed out
+    left_thresh *= boroi_l_mapped.astype( np.uint8 )
+    right_thresh *= boroi_r_mapped.astype( np.uint8 )
+    imgs_ret['thresh-rect'] = ( left_thresh, right_thresh )
+    
+    # get the contours and filter out outliers
+    left_skel, right_skel = skeleton( left_thresh, right_thresh )
+    imgs_ret['skel'] = ( left_skel, right_skel )
+    conts_l, conts_r = contours( left_skel, right_skel )
+    
+    # # outlier options
+    len_thresh = 5
+    bspl_k = 2
+    out_thresh = 1.25
+    n_neigh = 60
+   
+    pts_l, bspline_l = centerline_from_contours( conts_l,
+                                                  len_thresh = len_thresh,
+                                                  bspline_k = bspl_k,
+                                                  outlier_thresh = out_thresh,
+                                                  num_neigbors = n_neigh )
+    
+    pts_r, bspline_r = centerline_from_contours( conts_r,
+                                                  len_thresh = len_thresh,
+                                                  bspline_k = bspl_k,
+                                                  outlier_thresh = out_thresh,
+                                                  num_neigbors = n_neigh )
+
+    # stereo matching
+    left_rect_gray = cv.cvtColor( left_rect, cv.COLOR_BGR2GRAY )
+    right_rect_gray = cv.cvtColor( right_rect, cv.COLOR_BGR2GRAY )
+    pts_l_match, pts_r_match = stereomatch_normxcorr( pts_l, pts_r,
+                                                      left_rect_gray, right_rect_gray,
+                                                      winsize = winsize, zoom = zoom )
+    idx_l = np.argsort( pts_l_match[:, 1] )
+    idx_r = np.argsort( pts_r_match[:, 1] )
+    pts_l_match = pts_l_match[idx_l]
+    pts_r_match = pts_r_match[idx_r]
+    
+    # bspline fit the matching points
+    bspline_l_match = BSpline1D( pts_l_match[:, 1], pts_l_match[:, 0], k = bspl_k )
+    bspline_r_match = BSpline1D( pts_r_match[:, 1], pts_r_match[:, 0], k = bspl_k )
+    s = np.linspace( 0, 1, 200 )
+    pts_l_match = np.vstack( ( bspline_l_match.eval_unscale( s ), bspline_l_match.unscale( s ) ) ).T
+    pts_r_match = np.vstack( ( bspline_r_match.eval_unscale( s ), bspline_r_match.unscale( s ) ) ).T
+    
+    # stereo 
+    pts_3d = cv.triangulatePoints( stereo_params['P1'], stereo_params['P2'], pts_l_match.T, pts_r_match.T )
+    pts_3d /= pts_3d[-1,:]
+    pts_3d = pts_3d.T
+    
+    # show processing
+    figs_ret = {}
+    if proc_show:
+        figs_ret['rect'] = plt.figure( figsize = ( 12, 8 ) )
+        plt.imshow( imconcat( left_rect, right_rect, [255, 0, 0] ) )
+        plt.title( 'Rectified Images' )
+        
+        figs_ret['thresh-rect'] = plt.figure( figsize = ( 12, 8 ) )
+        plt.imshow( imconcat( left_thresh, right_thresh, 125 ), cmap = 'gray' )
+        plt.title( 'Thresholded rectified images' )
+        
+        figs_ret['skel'] = plt.figure( figsize = ( 12, 8 ) )
+        plt.imshow( imconcat( left_skel, right_skel, 125 ), cmap = 'gray' )
+        plt.title( 'Skeletonized threshold' )
+        
+        left_rect_draw = cv.polylines( left_rect.copy(), [pts_l.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+        right_rect_draw = cv.polylines( right_rect.copy(), [pts_r.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+        figs_ret['centerline'] = plt.figure( figsize = ( 12, 8 ) )
+        plt.imshow( imconcat( left_rect_draw, right_rect_draw, [255, 0, 0] ) )
+        plt.title( 'centerline points' )
+
+        left_rect_draw = cv.polylines( left_rect.copy(), [pts_l_match.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+        right_rect_draw = cv.polylines( right_rect.copy(), [pts_r_match.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+        figs_ret['centerline-matches'] = plt.figure( figsize = ( 12, 8 ) )
+        plt.imshow( imconcat( left_rect_draw, right_rect_draw, [255, 0, 0] ) )
+        plt.title( 'matched centerline points' )
+        
+        figs_ret['disparity'] = plt.figure( figsize = ( 8, 8 ) )
+        plt.plot( pts_l_match[:, 0] - pts_r_match[:, 0] )
+        plt.title( 'disparity' )
+        
+        figs_ret['3d'] = plt.figure( figsize = ( 8, 8 ) )
+        _, ax = plot3D_equal( pts_3d[:,:3], figs_ret['3d'], 1 )
+        plt.title( '3-D reconstruction' )
+
+    # if
+    
+    return pts_3d, pts_l, pts_r, bspline_l, bspline_r, imgs_ret, figs_ret
+    
+# needle_reconstruction3
 
 
 def needleproc_stereo( left_img, right_img,
@@ -1073,6 +1203,35 @@ def needleproc_stereo( left_img, right_img,
     return left_skel, right_skel, conts_l, conts_r
     
 # needleproc_stereo
+
+
+def plot3D_equal( pts, fig = None, axis:int = 0 ):
+    if axis == 1:
+        pts = pts.T
+        
+    # if
+    
+    if fig is None:
+        fig = plt.figure()
+    
+    # if
+    
+    ax = fig.gca( projection = '3d' )
+    X, Y, Z = pts[:3]
+    ax.plot( X, Y, Z )
+    max_range = np.array( [X.max() - X.min(), Y.max() - Y.min(), Z.max() - Z.min()] ).max()
+    Xb = 0.5 * max_range * np.mgrid[-1:2:2, -1:2:2, -1:2:2][0].flatten() + 0.5 * ( X.max() + X.min() )
+    Yb = 0.5 * max_range * np.mgrid[-1:2:2, -1:2:2, -1:2:2][1].flatten() + 0.5 * ( Y.max() + Y.min() )
+    Zb = 0.5 * max_range * np.mgrid[-1:2:2, -1:2:2, -1:2:2][2].flatten() + 0.5 * ( Z.max() + Z.min() )
+    # Comment or uncomment following both lines to test the fake bounding box:
+    for xb, yb, zb in zip( Xb, Yb, Zb ):
+        ax.plot( [xb], [yb], [zb], 'w' )
+        
+    # for
+    
+    return fig, ax
+
+# plot3D_equal
 
 
 def roi( img, roi, full:bool = True ):
@@ -1327,6 +1486,136 @@ def stereomatch_needle( left_conts, right_conts, method = "tip-count", col:int =
     return left_matches, right_matches
 
 # stereomatch_needle
+
+
+def stereomatch_normxcorr( left_conts, right_conts, img_left, img_right,
+                         roi_l_mask = None, roi_r_mask = None, score_thresh = 0.75,  # thresh=50,
+                         col:int = 1, zoom = 1.0, winsize = ( 5, 5 ) ):
+    ''' stereo matching needle arclength points for the needle
+        
+        performs this using normxcorr along 'col'-axis
+        
+        Args:
+            (left/right)_conts: a nx2 array of pixel coordinates
+                                for the contours in the (left/right) image
+            
+            img_(left/right): the left and right rectified images.
+            
+            roi_(left/right): the rectified left/right ROI images.
+                                             
+            col (int = 1): the column to begin matching by
+    
+     '''
+    # argument checking
+    assert( ( 0 < zoom ) )  # limit the make sure zoom is positive
+    
+    assert( len( winsize ) == 2 )
+    assert( all( length % 2 == 1 for length in winsize ) )  # make sure they are all both odd 
+    
+    # process the contours
+    if isinstance( left_conts, np.ndarray ):
+        left_conts = np.squeeze( left_conts )  # squeeze dimensions just in case
+    
+    # if
+    
+    elif isinstance( left_conts, BSpline1D ):
+        s = np.linspace( 0, 1, 200 )
+        if col == 0:
+            left_conts = np.vstack( ( left_conts.unscale( s ), left_conts.eval_unscale( s ) ) ).T
+            
+        else:
+            left_conts = np.vstack( ( left_conts.eval_unscale( s ), left_conts.unscale( s ) ) ).T
+            
+    # elif
+    
+    else:
+        raise TypeError( 'left_conts is not a BSpline1D or numpy array.' )
+        
+    # else
+    
+    if isinstance( right_conts, np.ndarray ):
+        right_conts = np.squeeze( right_conts )  # squeeze dimensions just in case
+    
+    # if
+    
+    elif isinstance( right_conts, BSpline1D ):
+        s = np.linspace( 0, 1, 200 )
+        if col == 0:
+            right_conts = np.vstack( ( right_conts._unscale( s ), right_conts.eval_unscale( s ) ) ).T
+            
+        else:
+            right_conts = np.vstack( ( right_conts.eval_unscale( s ), right_conts._unscale( s ) ) ).T
+            
+    # elif
+    
+    else:
+        raise TypeError( 'right_conts is not a BSpline1D or numpy array.' )
+        
+    # else
+    
+    # pad the images with winsize and zoom
+    left_pad = np.pad( img_left, ( ( winsize[0] // 2, winsize[0] // 2 ), ( winsize[1] // 2, winsize[1] // 2 ) ) )
+    right_pad = np.pad( img_right, ( ( winsize[0] // 2, winsize[0] // 2 ), ( winsize[1] // 2, winsize[1] // 2 ) ) )
+    left_zoom = cv.resize( left_pad, None, fx = zoom, fy = zoom, interpolation = cv.INTER_CUBIC )
+    right_zoom = cv.resize( right_pad, None, fx = zoom, fy = zoom, interpolation = cv.INTER_CUBIC )
+    
+    # remove duplicate rows
+    pts_l = np.unique( left_conts, axis = 0 )
+    pts_r = np.unique( right_conts, axis = 0 )
+    
+    #================= helper function ====================================
+    def normxcorr1( template, img, row ):
+        ''' returns the best match in a line along a specific row index'''
+        # unpack template shape
+        t_0, t_1 = template.shape
+
+        # get the search image
+        # # handle edge cases
+        img_roi = np.array( [[row - t_0 // 2, 0], [row + t_0 // 2 + 1, -1]] )    
+        img_roi[img_roi[:, 0] < 0, 0] = 0
+        img_search = roi( img, img_roi, full = False )
+        
+        res = cv.matchTemplate( img_search, template, cv.TM_CCOEFF_NORMED )
+            
+        min_val, max_val, min_loc, max_loc = cv.minMaxLoc( res )
+        
+        best_idx = ( max_loc[1] + row, max_loc[0] + t_1 // 2 + 1 )
+        
+        return best_idx, max_val
+                
+    #= def: normxcorr1 ====================================================
+    
+    # match points left-to-right
+    new_winsize = tuple( [round( zoom * win ) for win in winsize] )
+    new_winsize = tuple( [win if win % 2 == 1 else win + 1 for win in new_winsize] )
+    left_matches = np.zeros( ( 0, 2 ) )
+    right_matches = np.zeros( ( 0, 2 ) )
+    for i in range( pts_l.shape[0] ):
+        # grab the template
+        px_pt = np.flip( zoom * pts_l[i] ).round().astype( np.int32 ) + np.array( new_winsize ) // 2
+        
+        img_roi = np.vstack( ( -np.array( new_winsize ) // 2, np.array( new_winsize ) // 2 ) ) + px_pt.reshape( 1, -1 ).tolist()
+        img_roi[img_roi < 0] = 0
+        
+        template = roi( left_zoom, img_roi, full = False )
+        
+        if template.shape[0] % 2 == 0:
+            template = template[:-1,:]
+
+        if template.shape[1] % 2 == 0:
+            template = template[:,:-1]
+        
+        match_pt, score = normxcorr1( template, right_zoom, px_pt[0] )
+        if score > score_thresh:
+            left_matches = np.append( left_matches, np.reshape( px_pt - np.array( new_winsize ) // 2, ( 1, 2 ) ), axis = 0 ) 
+            right_matches = np.append( right_matches, np.reshape( match_pt - np.array( new_winsize ) // 2, ( 1, 2 ) ), axis = 0 ) 
+            
+        # if
+    # for
+
+    return np.flip( left_matches, axis = 1 ) / zoom, np.flip( right_matches, axis = 1 ) / zoom  # when using px_pt
+    
+# stereomatch_normxcorr
 
 
 def triangulate_points( pts_l, pts_r, stereo_params: dict, distorted:bool = False ):
@@ -1897,11 +2186,19 @@ def main_needleval( file_nums, img_dir, stereo_params, save_dir = None,
         roi_l = tuple( rois_l[img_num] )
         roi_r = tuple( rois_r[img_num] )
         
-        pts_3d, *_, proc_images, figures = needle_jig_reconstruction( left_img, right_img, stereo_params,
-                                                                      bor_l = bor_l, bor_r = bor_r,
-                                                                      roi_l = roi_l, roi_r = roi_r,
-                                                                      alpha = 0.5, recalc_stereo = True,
-                                                                      proc_show = proc_show )
+        #============================= OLD ====================================
+        # pts_3d, *_, proc_images, figures = needle_jig_reconstruction( left_img, right_img, stereo_params,
+        #                                                               bor_l = bor_l, bor_r = bor_r,
+        #                                                               roi_l = roi_l, roi_r = roi_r,
+        #                                                               alpha = 0.5, recalc_stereo = True,
+        #                                                               proc_show = proc_show )
+        #=======================================================================
+        
+        pts_3d, *_, proc_images, figures = needle_jig_reconstruction_refined( left_img, right_img, stereo_params,
+                                                                             bor_l = bor_l, bor_r = bor_r,
+                                                                             roi_l = roi_l, roi_r = roi_r,
+                                                                             alpha = 0.5, recalc_stereo = True,
+                                                                             proc_show = proc_show, zoom = 10 )
         
         # save the processed images
         if save_dir:
@@ -2000,7 +2297,7 @@ if __name__ == '__main__':
             
             try:
                 main_needleval( file_nums, curv_dir, stereo_params,
-                                save_dir = curv_dir, proc_show = False, res_show = False )
+                                save_dir = None, proc_show = False, res_show = False )
             
             # try
              
