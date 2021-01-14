@@ -988,37 +988,37 @@ def needle_jig_reconstruction_refined( img_left, img_right, stereo_params,
     # # black-out regions
     left_roibo = blackout_regions( left_roi, bor_l )
     right_roibo = blackout_regions( right_roi, bor_r )
-    imgs_ret = {'roibo': ( left_roibo, right_roibo )}
+    imgs_ret = {'roibo': imconcat( left_roibo, right_roibo, [0, 0, 255] )}
     
     # stereo rectify the images
     left_rect, right_rect, _, map_l, map_r = stereo_rectify( left_roibo, right_roibo, stereo_params,
                                                                        interp_method = cv.INTER_LINEAR, alpha = alpha,
                                                                        force_recalc = recalc_stereo )
-    imgs_ret['rect'] = ( left_rect, right_rect )
+    imgs_ret['rect'] = imconcat( left_rect, right_rect, [0, 0, 255] )
     
     # # map the rois
     boroi_l_img = roi_image( roi_l, img_left.shape ) & blackout_image( bor_l, img_left.shape )
     boroi_r_img = roi_image( roi_r, img_right.shape ) & blackout_image( bor_r, img_right.shape )
-    imgs_ret['boroi-bool'] = ( boroi_l_img, boroi_r_img )
+    imgs_ret['roi-bo-bool'] = imconcat( 255 * boroi_l_img, 255 * boroi_r_img, 125 )
     
     boroi_l_mapped = cv.remap( boroi_l_img.astype( np.uint8 ), map_l[0], map_l[1], cv.INTER_NEAREST )
     boroi_r_mapped = cv.remap( boroi_r_img.astype( np.uint8 ), map_r[0], map_r[1], cv.INTER_NEAREST )
-    imgs_ret['boroi-bool-mapped'] = ( boroi_l_mapped, boroi_r_mapped )
+    imgs_ret['boroi-bool-mapped'] = imconcat( 255 * boroi_l_mapped, 255 * boroi_r_mapped, 125 )
     
     # perform image processing on rectified images
     left_gray = cv.cvtColor( left_rect, cv.COLOR_BGR2GRAY )
     right_gray = cv.cvtColor( right_rect, cv.COLOR_BGR2GRAY )
-    imgs_ret['gray-rect'] = ( left_gray, right_gray )
+    imgs_ret['gray-rect'] = imconcat( left_gray, right_gray , 0 )
     left_thresh, right_thresh = thresh( left_gray, right_gray, thresh = 50 )
     
     # # remove extra borders threshed out
     left_thresh *= boroi_l_mapped.astype( np.uint8 )
     right_thresh *= boroi_r_mapped.astype( np.uint8 )
-    imgs_ret['thresh-rect'] = ( left_thresh, right_thresh )
+    imgs_ret['thresh-rect'] = imconcat( left_thresh, right_thresh, 125 )
     
     # get the contours and filter out outliers
     left_skel, right_skel = skeleton( left_thresh, right_thresh )
-    imgs_ret['skel'] = ( left_skel, right_skel )
+    imgs_ret['skel'] = imconcat( 255 * left_skel, 255 * right_skel, 125 ).astype( np.uint8 )
     conts_l, conts_r = contours( left_skel, right_skel )
     
     # # outlier options
@@ -1038,6 +1038,10 @@ def needle_jig_reconstruction_refined( img_left, img_right, stereo_params,
                                                   bspline_k = bspl_k,
                                                   outlier_thresh = out_thresh,
                                                   num_neigbors = n_neigh )
+    
+    left_rect_draw = cv.polylines( left_rect.copy(), [pts_l.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+    right_rect_draw = cv.polylines( right_rect.copy(), [pts_r.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+    imgs_ret['contours'] = imconcat( left_rect_draw, right_rect_draw, [0, 0, 255] )
 
     # stereo matching
     left_rect_gray = cv.cvtColor( left_rect, cv.COLOR_BGR2GRAY )
@@ -1056,6 +1060,13 @@ def needle_jig_reconstruction_refined( img_left, img_right, stereo_params,
     s = np.linspace( 0, 1, 200 )
     pts_l_match = np.vstack( ( bspline_l_match.eval_unscale( s ), bspline_l_match.unscale( s ) ) ).T
     pts_r_match = np.vstack( ( bspline_r_match.eval_unscale( s ), bspline_r_match.unscale( s ) ) ).T
+    
+    # = add to images
+    left_rect_match_draw = cv.polylines( left_rect.copy(),
+                                         [pts_l_match.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+    right_rect_match_draw = cv.polylines( right_rect.copy(),
+                                          [pts_r_match.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+    imgs_ret['contours-match'] = imconcat( left_rect_match_draw, right_rect_match_draw, [0, 0, 255] )
     
     # stereo 
     pts_3d = cv.triangulatePoints( stereo_params['P1'], stereo_params['P2'], pts_l_match.T, pts_r_match.T )
@@ -1077,16 +1088,12 @@ def needle_jig_reconstruction_refined( img_left, img_right, stereo_params,
         plt.imshow( imconcat( left_skel, right_skel, 125 ), cmap = 'gray' )
         plt.title( 'Skeletonized threshold' )
         
-        left_rect_draw = cv.polylines( left_rect.copy(), [pts_l.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
-        right_rect_draw = cv.polylines( right_rect.copy(), [pts_r.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
         figs_ret['centerline'] = plt.figure( figsize = ( 12, 8 ) )
         plt.imshow( imconcat( left_rect_draw, right_rect_draw, [255, 0, 0] ) )
         plt.title( 'centerline points' )
-
-        left_rect_draw = cv.polylines( left_rect.copy(), [pts_l_match.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
-        right_rect_draw = cv.polylines( right_rect.copy(), [pts_r_match.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+        
         figs_ret['centerline-matches'] = plt.figure( figsize = ( 12, 8 ) )
-        plt.imshow( imconcat( left_rect_draw, right_rect_draw, [255, 0, 0] ) )
+        plt.imshow( imconcat( left_rect_match_draw, right_rect_match_draw, [255, 0, 0] ) )
         plt.title( 'matched centerline points' )
         
         figs_ret['disparity'] = plt.figure( figsize = ( 8, 8 ) )
@@ -1101,7 +1108,7 @@ def needle_jig_reconstruction_refined( img_left, img_right, stereo_params,
     
     return pts_3d, pts_l, pts_r, bspline_l, bspline_r, imgs_ret, figs_ret
     
-# needle_reconstruction3
+# needle_jig_reconstruction_refined
 
 
 def needleproc_stereo( left_img, right_img,
@@ -2297,7 +2304,7 @@ if __name__ == '__main__':
             
             try:
                 main_needleval( file_nums, curv_dir, stereo_params,
-                                save_dir = None, proc_show = False, res_show = False )
+                                save_dir = curv_dir, proc_show = False, res_show = False )
             
             # try
              
