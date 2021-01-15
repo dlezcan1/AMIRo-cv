@@ -2207,7 +2207,7 @@ def main_needleval( file_nums, img_dir, stereo_params, save_dir = None,
                                                                              bor_l = bor_l, bor_r = bor_r,
                                                                              roi_l = roi_l, roi_r = roi_r,
                                                                              alpha = 0.5, recalc_stereo = True,
-                                                                             proc_show = proc_show, zoom = 1.5,
+                                                                             proc_show = proc_show, zoom = 1.75,
                                                                              winsize = ( 31, 21 ) )
         
         dt = time.time() - t0
