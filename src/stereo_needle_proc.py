@@ -8,7 +8,7 @@ This is a file for building image processing to segment the needle in stereo ima
 
 '''
 
-import re, glob, warnings
+import re, glob, warnings, time
 import numpy as np
 import cv2 as cv
 import matplotlib.pyplot as plt
@@ -2147,7 +2147,9 @@ def main_needleval( file_nums, img_dir, stereo_params, save_dir = None,
     rois_l = rois_rl[:,:, 0:2].tolist()
     rois_r = rois_rl[:,:, 2:4].tolist()
     
+    time_trials = []
     for img_num in file_nums:
+        t0 = time.time()
         # left-right stereo pairs
         left_file = img_dir + f'left-{img_num:04d}.png'
         right_file = img_dir + f'right-{img_num:04d}.png'
@@ -2205,9 +2207,11 @@ def main_needleval( file_nums, img_dir, stereo_params, save_dir = None,
                                                                              bor_l = bor_l, bor_r = bor_r,
                                                                              roi_l = roi_l, roi_r = roi_r,
                                                                              alpha = 0.5, recalc_stereo = True,
-                                                                             proc_show = proc_show, zoom = 10,
-                                                                             winsize = ( 41, 41 ) )
+                                                                             proc_show = proc_show, zoom = 1.5,
+                                                                             winsize = ( 31, 21 ) )
         
+        dt = time.time() - t0
+        time_trials.append( dt )
         # save the processed images
         if save_dir:
             print( 'Saving figures and files...' )
@@ -2249,10 +2253,18 @@ def main_needleval( file_nums, img_dir, stereo_params, save_dir = None,
         # if
         
         print( f'Completed stereo pair {img_num:04d}.' )
+        print( f'Time for Trial: {round(dt/60)} mins. {dt%60:.2f} s' )
         print( '\n' + 75 * '=', end = '\n\n' )
         plt.close( 'all' )
         
     # for
+    
+    # display average time.
+    if len( time_trials ) > 0:
+        dt_avg = sum( time_trials ) / len( time_trials )
+        print( f'Average time for all {round(dt_avg/60)} mins. {dt_avg%60:.2f}' )
+        
+    # if
     
 # main_needleval
 
