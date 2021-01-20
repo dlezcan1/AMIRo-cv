@@ -17,7 +17,7 @@ function [pos, wv, Rmat, kc, w_init] = singlebend_needleshape(curvatures, aa_tip
     
     %% Arguments
     arguments
-        curvatures (:, 2) {mustBeNumeric};
+        curvatures (2, :) {mustBeNumeric};
         aa_tip_locs (1,:) {mustBeNumeric};
         L double;
         kc_i double;
@@ -50,8 +50,8 @@ function [pos, wv, Rmat, kc, w_init] = singlebend_needleshape(curvatures, aa_tip
     % get the arclength indices that are valid
     aa_base_locs_valid = aa_base_locs(aa_base_locs >= 0);
     [~, s_idx_aa] = min(abs(s' - aa_base_locs_valid));
-    curvs_aa = curvatures(aa_base_locs >= 0, :)*1e-3; % convert curvatures to 1/mm
-    curvs_aa = [curvs_aa, zeros(size(curvs_aa, 1), 1)];
+    curvs_aa = curvatures(:, aa_base_locs >= 0)*1e-3; % convert curvatures to 1/mm
+    curvs_aa = [curvs_aa; zeros(1,size(curvs_aa, 2))];
     s_aa = s(s_idx_aa);
         
     
@@ -59,7 +59,7 @@ function [pos, wv, Rmat, kc, w_init] = singlebend_needleshape(curvatures, aa_tip
     % initial cost values
     eta = [w_init_i; kc_i];
     scalef0 = 1;
-    Cval = costfn_shape_singlebend(eta, curvs_aa', s_idx_aa, ds, length(s), B, Binv, scalef0);
+    Cval = costfn_shape_singlebend(eta, curvs_aa, s_idx_aa, ds, length(s), B, Binv, scalef0);
     scalef = 1/Cval;
     
     % optimization
@@ -69,8 +69,8 @@ function [pos, wv, Rmat, kc, w_init] = singlebend_needleshape(curvatures, aa_tip
     
     oldopts = optimset('fmincon');
     options = optimset(oldopts,'Algorithm','interior-point','TolFun',1e-8,'TolX',1e-8,...
-        'MaxFunEvals',10000);
-    [x, fval, exitflag] = fmincon( @(x) costfn_shape_singlebend(x, curvs_aa',...
+        'MaxFunEvals',10000, 'Display', 'off');
+    [x, fval, exitflag] = fmincon( @(x) costfn_shape_singlebend(x, curvs_aa,...
         s_idx_aa, ds, length(s), B, Binv, scalef),...
         x0, [], [], [], [], LB, UB, [], options);
     
