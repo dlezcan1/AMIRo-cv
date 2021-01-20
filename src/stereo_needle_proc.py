@@ -1100,7 +1100,7 @@ def needle_jig_reconstruction_refined( img_left, img_right, stereo_params,
     figs_ret = {}
     if proc_show:
         figs_ret['rect'] = plt.figure( figsize = ( 12, 8 ) )
-        plt.imshow( imconcat( left_rect, right_rect, [255, 0, 0] ) )
+        plt.imshow( imconcat( left_rect, right_rect, [0, 0, 255] )[:,:,::-1] )
         plt.title( 'Rectified Images' )
         
         figs_ret['thresh-rect'] = plt.figure( figsize = ( 12, 8 ) )
@@ -1112,11 +1112,11 @@ def needle_jig_reconstruction_refined( img_left, img_right, stereo_params,
         plt.title( 'Skeletonized threshold' )
         
         figs_ret['centerline'] = plt.figure( figsize = ( 12, 8 ) )
-        plt.imshow( imconcat( left_rect_draw, right_rect_draw, [255, 0, 0] ) )
+        plt.imshow( imconcat( left_rect_draw, right_rect_draw, [0, 0, 255] )[:,:,::-1] )
         plt.title( 'centerline points' )
         
         figs_ret['centerline-matches'] = plt.figure( figsize = ( 12, 8 ) )
-        plt.imshow( imconcat( left_rect_match_draw, right_rect_match_draw, [255, 0, 0] ) )
+        plt.imshow( imconcat( left_rect_match_draw, right_rect_match_draw, [0, 0, 255] )[:,:,::-1] )
         plt.title( 'matched centerline points' )
         
         figs_ret['disparity'] = plt.figure( figsize = ( 8, 8 ) )
@@ -1147,7 +1147,7 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
     imgs_ret = {}
     
     # = gaussian blur the images
-    left_gauss, right_gauss = gauss_blur( img_left, img_right, ksize = ( 9, 9 ) )
+    left_gauss, right_gauss = gauss_blur( img_left, img_right, ksize = ( 5, 5 ) )
     imgs_ret['gauss'] = imconcat( left_gauss, right_gauss, 125 )
     
     # # roi the images
@@ -1163,7 +1163,12 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
     left_rect, right_rect, _, map_l, map_r = stereo_rectify( left_roibo, right_roibo, stereo_params,
                                                                        interp_method = cv.INTER_LINEAR, alpha = alpha,
                                                                        force_recalc = recalc_stereo )
-    imgs_ret['rect'] = imconcat( left_rect, right_rect, [0, 0, 255] )
+    imgs_ret['rect-roi'] = imconcat( left_rect, right_rect, [0, 0, 255] )
+    
+    # = apply stereo rectification map to full image
+    left_rect_full = cv.remap( img_left, map_l[0], map_l[1], cv.INTER_LINEAR )
+    right_rect_full = cv.remap( img_right, map_r[0], map_r[1], cv.INTER_LINEAR )
+    imgs_ret['rect'] = imconcat( left_rect_full, right_rect_full, [0, 0, 255] )
     
     # # map the rois
     boroi_l_img = roi_image( roi_l, img_left.shape ) & blackout_image( bor_l, img_left.shape )
@@ -1186,7 +1191,7 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
     imgs_ret['thresh-rect'] = imconcat( left_thresh, right_thresh, 125 )
     
     # median filter
-    left_med, right_med = median_blur( left_thresh, right_thresh, ksize = 7 )
+    left_med, right_med = median_blur( left_thresh, right_thresh, ksize = 5 )
     imgs_ret['median'] = imconcat( left_med, right_med, 125 )
     
     # segment out the red color
@@ -1234,9 +1239,8 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
                                                       left_rect_gray, right_rect_gray,
                                                       winsize = winsize, zoom = zoom )
     idx_l = np.argsort( pts_l_match[:, 1] )
-    idx_r = np.argsort( pts_r_match[:, 1] )
     pts_l_match = pts_l_match[idx_l]
-    pts_r_match = pts_r_match[idx_r]
+    pts_r_match = pts_r_match[idx_l]
     
     # bspline fit the matching points
     bspline_l_match = BSpline1D( pts_l_match[:, 1], pts_l_match[:, 0], k = bspl_k )
@@ -1247,9 +1251,9 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
     
     # = add to images
     left_rect_match_draw = cv.polylines( left_rect.copy(),
-                                         [pts_l_match.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+                                         [pts_l_match.reshape( -1, 1, 2 ).round().astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
     right_rect_match_draw = cv.polylines( right_rect.copy(),
-                                          [pts_r_match.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+                                          [pts_r_match.reshape( -1, 1, 2 ).round().astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
     imgs_ret['contours-match'] = imconcat( left_rect_match_draw, right_rect_match_draw, [0, 0, 255] )
     
     # stereo 
@@ -1261,8 +1265,12 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
     figs_ret = {}
     if proc_show:
         figs_ret['rect'] = plt.figure( figsize = ( 12, 8 ) )
-        plt.imshow( imconcat( left_rect, right_rect, [255, 0, 0] ) )
+        plt.imshow( imgs_ret['rect'][:,:,::-1] )
         plt.title( 'Rectified Images' )
+        
+        figs_ret['rect-roi'] = plt.figure( figsize = ( 12, 8 ) )
+        plt.imshow( imconcat( left_rect, right_rect, [0, 0, 255] )[:,:,::-1] )
+        plt.title( 'Rectified Images: ROI' )
         
         figs_ret['thresh-rect'] = plt.figure( figsize = ( 12, 8 ) )
         plt.imshow( imconcat( left_thresh, right_thresh, 125 ), cmap = 'gray' )
@@ -1273,7 +1281,7 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
         plt.title( 'Median-Filtered Images' )
         
         figs_ret['mask-red'] = plt.figure( figsize = ( 12, 8 ) )
-        plt.imshow( imgs_ret['mask-red'] )
+        plt.imshow( imgs_ret['mask-red'][:,:,::-1] )
         plt.title( 'Red mask' )
         
         figs_ret['thresh-no-red'] = plt.figure( figsize = ( 12, 8 ) )
@@ -1289,11 +1297,11 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
         plt.title( 'Skeletonized threshold' )
         
         figs_ret['centerline'] = plt.figure( figsize = ( 12, 8 ) )
-        plt.imshow( imconcat( left_rect_draw, right_rect_draw, [255, 0, 0] ) )
+        plt.imshow( imconcat( left_rect_draw, right_rect_draw, [0, 0, 255] )[:,:,::-1] )
         plt.title( 'centerline points' )
         
         figs_ret['centerline-matches'] = plt.figure( figsize = ( 12, 8 ) )
-        plt.imshow( imconcat( left_rect_match_draw, right_rect_match_draw, [255, 0, 0] ) )
+        plt.imshow( imconcat( left_rect_match_draw, right_rect_match_draw, [0, 0, 255] )[:,:,::-1] )
         plt.title( 'matched centerline points' )
         
         figs_ret['disparity'] = plt.figure( figsize = ( 8, 8 ) )
@@ -2122,8 +2130,8 @@ def main_insertionval( insertion_dirs, stereo_params, save_bool:bool = False,
                                                                                  bor_l = bors_l, bor_r = bors_r,
                                                                                  roi_l = roi_l, roi_r = roi_r,
                                                                                  alpha = 0.5, recalc_stereo = True,
-                                                                                 proc_show = proc_show, zoom = 2,
-                                                                                 winsize = ( 31, 21 ) )
+                                                                                 proc_show = proc_show, zoom = 7,
+                                                                                 winsize = ( 31, 31 ) )
         # measure the time per trial
         dt = time.time() - t0
         time_trials.append( dt )
@@ -2153,7 +2161,7 @@ def main_insertionval( insertion_dirs, stereo_params, save_bool:bool = False,
             
         # if
         
-        print( f"Completed trial: '{ins_dir}.'" )
+        print( f"Completed trial: '{ins_dir}'." )
         print( f'Time for Trial: {round(dt/60)} mins. {dt%60:.2f} s' )
         print( '\n' + 75 * '=', end = '\n\n' )
         plt.close( 'all' )
@@ -2512,8 +2520,8 @@ def main_needleval( file_nums, img_dir, stereo_params, save_dir = None,
                                                                              bor_l = bor_l, bor_r = bor_r,
                                                                              roi_l = roi_l, roi_r = roi_r,
                                                                              alpha = 0.5, recalc_stereo = True,
-                                                                             proc_show = proc_show, zoom = 1.75,
-                                                                             winsize = ( 31, 21 ) )
+                                                                             proc_show = proc_show, zoom = 3,
+                                                                             winsize = ( 31, 31 ) )
         
         dt = time.time() - t0
         time_trials.append( dt )
@@ -2587,7 +2595,7 @@ if __name__ == '__main__':
     needle_dir = stereo_dir + "needle_examples/"  # needle insertion examples directory
     grid_dir = stereo_dir + "grid_only/"  # grid testqing directory
     valid_dir = stereo_dir + "stereo_validation_jig/"  # validation directory
-    insertion_dir = stereo_dir + "01-18-2021_Test-Insertion-Expmt/"
+    insertion_dir = "../../data/needle_3CH_3AA/01-18-2021_Test-Insertion-Expmt/"
     
     curvature_dir = glob.glob( valid_dir + 'k_*/' )  # validation curvature directories
     curvature_dir = sorted( curvature_dir )
