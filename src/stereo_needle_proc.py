@@ -1183,7 +1183,10 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
     left_gray = cv.cvtColor( left_rect, cv.COLOR_BGR2GRAY )
     right_gray = cv.cvtColor( right_rect, cv.COLOR_BGR2GRAY )
     imgs_ret['rect-gray'] = imconcat( left_gray, right_gray )
-    left_thresh, right_thresh = thresh( left_gray, right_gray, thresh = 'adapt' )
+    left_thresh, right_thresh = thresh( left_gray, right_gray, thresh = 60 )
+    left_thresh_low, right_thresh_low = thresh( left_gray, right_gray, thresh = 12 )  # remove black colors
+    left_thresh *= ( left_thresh_low == 0 )
+    right_thresh *= ( right_thresh_low == 0 )
     
     # = remove extra borders threshed out
     left_thresh *= boroi_l_mapped.astype( np.uint8 )
@@ -1191,7 +1194,7 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
     imgs_ret['thresh-rect'] = imconcat( left_thresh, right_thresh, 125 )
     
     # median filter
-    left_med, right_med = median_blur( left_thresh, right_thresh, ksize = 5 )
+    left_med, right_med = median_blur( left_thresh, right_thresh, ksize = 3 )
     imgs_ret['median'] = imconcat( left_med, right_med, 125 )
     
     # segment out the red color
@@ -1201,17 +1204,17 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
     imgs_ret['mask-red'] = imconcat( left_red, right_red, [125, 125, 125] )
     imgs_ret['thresh-no-red'] = imconcat( left_thresh_masked, right_thresh_masked, 125 )
     
-    # opening operation
-    left_open, right_open = bin_open( left_thresh_masked, right_thresh_masked, ( 6, 4 ) )
-    imgs_ret['open'] = imconcat( left_open, right_open, 125 )
+#     # opening operation
+#     left_open, right_open = bin_open( left_thresh_masked, right_thresh_masked, ( 6, 4 ) )
+#     imgs_ret['open'] = imconcat( left_open, right_open, 125 )
     
     # get the contours and filter out outliers
-    left_skel, right_skel = skeleton( left_open, right_open )
+    left_skel, right_skel = skeleton( left_med, right_med )
     imgs_ret['skel'] = imconcat( 255 * left_skel, 255 * right_skel, 125 ).astype( np.uint8 )
     conts_l, conts_r = contours( left_skel, right_skel )
     
     # # outlier options
-    len_thresh = 10
+    len_thresh = 5
     bspl_k = 2
     out_thresh = 0.5
     n_neigh = 50
@@ -1233,21 +1236,30 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
     imgs_ret['contours'] = imconcat( left_rect_draw, right_rect_draw, [0, 0, 255] )
 
     # stereo matching
-    left_rect_gray = cv.cvtColor( left_rect, cv.COLOR_BGR2GRAY )
-    right_rect_gray = cv.cvtColor( right_rect, cv.COLOR_BGR2GRAY )
+    left_rect_gray = cv.cvtColor( left_rect_full, cv.COLOR_BGR2GRAY )
+    right_rect_gray = cv.cvtColor( right_rect_full, cv.COLOR_BGR2GRAY )
     pts_l_match, pts_r_match = stereomatch_normxcorr( pts_l, pts_r,
                                                       left_rect_gray, right_rect_gray,
-                                                      winsize = winsize, zoom = zoom )
+                                                      winsize = winsize, zoom = zoom,
+                                                      score_thresh = 0.5 )
+    
+    pts_r_match, pts_l_match = stereomatch_normxcorr( pts_r, pts_l,
+                                                      right_rect_gray, left_rect_gray,
+                                                      winsize = winsize, zoom = zoom,
+                                                      score_thresh = 0.5 )
     idx_l = np.argsort( pts_l_match[:, 1] )
     pts_l_match = pts_l_match[idx_l]
     pts_r_match = pts_r_match[idx_l]
     
     # bspline fit the matching points
-    bspline_l_match = BSpline1D( pts_l_match[:, 1], pts_l_match[:, 0], k = bspl_k )
-    bspline_r_match = BSpline1D( pts_r_match[:, 1], pts_r_match[:, 0], k = bspl_k )
-    s = np.linspace( 0, 1, 200 )
-    pts_l_match = np.vstack( ( bspline_l_match.eval_unscale( s ), bspline_l_match.unscale( s ) ) ).T
-    pts_r_match = np.vstack( ( bspline_r_match.eval_unscale( s ), bspline_r_match.unscale( s ) ) ).T
+    if bspl_k > 0:
+        bspline_l_match = BSpline1D( pts_l_match[:, 1], pts_l_match[:, 0], k = 2 )
+        bspline_r_match = BSpline1D( pts_r_match[:, 1], pts_r_match[:, 0], k = 2 )
+        s = np.linspace( 0, 1, 200 )
+        pts_l_match = np.vstack( ( bspline_l_match.eval_unscale( s ), bspline_l_match.unscale( s ) ) ).T
+        pts_r_match = np.vstack( ( bspline_r_match.eval_unscale( s ), bspline_r_match.unscale( s ) ) ).T
+        
+    # if
     
     # = add to images
     left_rect_match_draw = cv.polylines( left_rect.copy(),
@@ -1280,17 +1292,17 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
         plt.imshow( imconcat( left_med, right_med, 125 ), cmap = 'gray' )
         plt.title( 'Median-Filtered Images' )
         
-        figs_ret['mask-red'] = plt.figure( figsize = ( 12, 8 ) )
-        plt.imshow( imgs_ret['mask-red'][:,:,::-1] )
-        plt.title( 'Red mask' )
+#         figs_ret['mask-red'] = plt.figure( figsize = ( 12, 8 ) )
+#         plt.imshow( imgs_ret['mask-red'][:,:,::-1] )
+#         plt.title( 'Red mask' )
+         
+#         figs_ret['thresh-no-red'] = plt.figure( figsize = ( 12, 8 ) )
+#         plt.imshow( imgs_ret['thresh-no-red'], cmap = 'gray' )
+#         plt.title( 'Threshold masked out-red' )
         
-        figs_ret['thresh-no-red'] = plt.figure( figsize = ( 12, 8 ) )
-        plt.imshow( imgs_ret['thresh-no-red'], cmap = 'gray' )
-        plt.title( 'Threshold masked out-red' )
-        
-        figs_ret['open'] = plt.figure( figsize = ( 12, 8 ) )
-        plt.imshow( imconcat( left_open, right_open, 125 ), cmap = 'gray' )
-        plt.title( 'Morphological opening' )
+#         figs_ret['open'] = plt.figure( figsize = ( 12, 8 ) )
+#         plt.imshow( imconcat( left_open, right_open, 125 ), cmap = 'gray' )
+#         plt.title( 'Morphological opening' )
         
         figs_ret['skel'] = plt.figure( figsize = ( 12, 8 ) )
         plt.imshow( imconcat( left_skel, right_skel, 125 ), cmap = 'gray' )
@@ -1300,9 +1312,23 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
         plt.imshow( imconcat( left_rect_draw, right_rect_draw, [0, 0, 255] )[:,:,::-1] )
         plt.title( 'centerline points' )
         
+        figs_ret['centerline-plot'] = plt.figure( figsize = ( 12, 8 ) )
+        plt.plot( pts_l[:, 0], pts_l[:, 1], '.', label = 'left' )
+        plt.plot( pts_r[:, 0], pts_r[:, 1], '.', label = 'right' )
+        plt.gca().invert_yaxis()
+        plt.title( 'centerline points' )
+        plt.legend()
+        
         figs_ret['centerline-matches'] = plt.figure( figsize = ( 12, 8 ) )
         plt.imshow( imconcat( left_rect_match_draw, right_rect_match_draw, [0, 0, 255] )[:,:,::-1] )
         plt.title( 'matched centerline points' )
+        
+        figs_ret['centerline-matches-plot'] = plt.figure( figsize = ( 12, 8 ) )
+        plt.plot( pts_l_match[:, 0], pts_l_match[:, 1], '.', label = 'left' )
+        plt.plot( pts_r_match[:, 0], pts_r_match[:, 1], '.', label = 'right' )
+        plt.gca().invert_yaxis()
+        plt.title( 'matched centerline points' )
+        plt.legend()
         
         figs_ret['disparity'] = plt.figure( figsize = ( 8, 8 ) )
         plt.plot( pts_l_match[:, 0] - pts_r_match[:, 0] )
@@ -1892,22 +1918,22 @@ def triangulate_points( pts_l, pts_r, stereo_params: dict, distorted:bool = Fals
 # triangulate
 
 
-def thresh( left_img, right_img, thresh = 'adapt' ):
+def thresh( left_img, right_img, thresh = 'adapt', thresh_max = 255 ):
     ''' image thresholding'''
     
     if isinstance( thresh, str ):
         if thresh.lower() == 'adapt':
-            left_thresh = cv.adaptiveThreshold( left_img.astype( np.uint8 ), 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+            left_thresh = cv.adaptiveThreshold( left_img.astype( np.uint8 ), thresh_max, cv.ADAPTIVE_THRESH_MEAN_C,
                                                 cv.THRESH_BINARY_INV, 13, 4 )
-            right_thresh = cv.adaptiveThreshold( right_img.astype( np.uint8 ), 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C,
+            right_thresh = cv.adaptiveThreshold( right_img.astype( np.uint8 ), thresh_max, cv.ADAPTIVE_THRESH_MEAN_C,
                                                 cv.THRESH_BINARY_INV, 13, 4 )
             
         # if
     # if
     
     elif isinstance( thresh, ( float, int ) ):
-        _, left_thresh = cv.threshold( left_img, thresh, 255, cv.THRESH_BINARY_INV )
-        _, right_thresh = cv.threshold( right_img, thresh, 255, cv.THRESH_BINARY_INV )
+        _, left_thresh = cv.threshold( left_img, thresh, thresh_max, cv.THRESH_BINARY_INV )
+        _, right_thresh = cv.threshold( right_img, thresh, thresh_max, cv.THRESH_BINARY_INV )
         
     # elif
     
@@ -2099,23 +2125,51 @@ def main_insertionval( insertion_dirs, stereo_params, save_bool:bool = False,
            
         # else
         
+        # make sure for positive insertion distance
+        if ins_dist <= 0:
+            continue
+        
+        # if
+        
+#         # testings to skip
+#         if ins_dist != 90:
+#             continue
+#         
+#         # if
+        
         # blackout-regions
         bors_l = []
         bors_r = []
         
         # load in the pre-determined ROIs
 #         rois_rl = np.load( ins_dir + 'rois_lr.npy' )
-        if ins_num < 3:
-            roi_l = [[30, 310], [-150, 720]]
-            roi_r = [[30, 335], [-150, 745]]
+        if ins_num < 2:
+            roi_l = [[62, 300], [-250, 400]]
+            roi_r = [[55, 325], [-250, 425]]
+
+        elif ins_num < 3:
+            roi_l = [[62, 300], [-250, 450]]
+            roi_r = [[55, 325], [-250, 475]]
+            
+        elif ins_num < 5:
+            roi_l = [[62, 400], [-250, 550]]
+            roi_r = [[55, 425], [-250, 575]]
             
         elif ins_num < 7:
-            roi_l = [[30, 310], [-150, 650]]
-            roi_r = [[30, 335], [-150, 650]]
+            roi_l = [[62, 450], [-250, 600]]
+            roi_r = [[55, 475], [-250, 625]]
+            
+        elif ins_num < 9:
+            roi_l = [[62, 525], [-250, 675]]
+            roi_r = [[55, 550], [-250, 700]]
             
         elif ins_num < 10:
-            roi_l = [[30, 480], [-150, 700]]
-            roi_r = [[30, 505], [-150, 730]]
+            roi_l = [[62, 575], [-250, 725]]
+            roi_r = [[55, 600], [-250, 750]]
+            
+        else:
+            roi_l = []
+            roi_r = []
         
         # load the images
         left_file = ins_dir + 'left.png'
@@ -2129,9 +2183,12 @@ def main_insertionval( insertion_dirs, stereo_params, save_bool:bool = False,
         pts_3d, *_, proc_images, figures = needle_tissue_reconstruction_refined( left_img, right_img, stereo_params,
                                                                                  bor_l = bors_l, bor_r = bors_r,
                                                                                  roi_l = roi_l, roi_r = roi_r,
-                                                                                 alpha = 0.5, recalc_stereo = True,
-                                                                                 proc_show = proc_show, zoom = 7,
-                                                                                 winsize = ( 31, 31 ) )
+                                                                                 alpha = 0.6, recalc_stereo = True,
+                                                                                 proc_show = proc_show, zoom = 3,
+                                                                                 winsize = ( 41, 41 ) )
+        
+        arclength = np.linalg.norm( np.diff( pts_3d, axis = 0 ), axis = 1 ).sum()
+        print( f"Arclength of reconstruction: {arclength:.3f} mm" )
         # measure the time per trial
         dt = time.time() - t0
         time_trials.append( dt )
@@ -2595,7 +2652,7 @@ if __name__ == '__main__':
     needle_dir = stereo_dir + "needle_examples/"  # needle insertion examples directory
     grid_dir = stereo_dir + "grid_only/"  # grid testqing directory
     valid_dir = stereo_dir + "stereo_validation_jig/"  # validation directory
-    insertion_dir = "../../data/needle_3CH_3AA/01-18-2021_Test-Insertion-Expmt/"
+    insertion_dir = "../../data/needle_3CH_3AA/01-27-2021_Test-Refraction/"
     
     curvature_dir = glob.glob( valid_dir + 'k_*/' )  # validation curvature directories
     curvature_dir = sorted( curvature_dir )
