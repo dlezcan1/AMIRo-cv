@@ -1873,7 +1873,7 @@ def triangulate_points( pts_l, pts_r, stereo_params: dict, distorted:bool = Fals
         @return: [Nx3] world frame points
         
     '''
-    warnings.warn()
+    
     # load in stereo parameters, camera matrices and distortion coefficients
     # - camera matrices
     Kl = stereo_params['cameraMatrix1']
