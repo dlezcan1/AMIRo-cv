@@ -148,7 +148,8 @@ def canny( left_img, right_img, lo_thresh = 150, hi_thresh = 200 ):
 
 
 def centerline_from_contours( contours, len_thresh:int = -1, bspline_k:int = -1,
-                              outlier_thresh:float = -1, num_neigbors: int = -1 ):
+                              outlier_thresh:float = -1, num_neigbors: int = -1,
+                              scale: tuple = ( 1, 1 ) ):
     ''' This is to determine the centerline points from the contours using outlier detection
         and bspline smoothing
         
@@ -164,6 +165,8 @@ def centerline_from_contours( contours, len_thresh:int = -1, bspline_k:int = -1,
         @param outlier_thresh: the outlier thresholding value
         @param num_neighbors: the number of neigbhors parameter needed for the outlier detection
         
+        @param scale: tuple to scale contour points by (Default is (1,1)).
+        
         @return: pts, bspline:
                     pts = [N x 2] numpy array of bspline pts (i, j) image points
                     bspline = None or bspline that was fit to the contours 
@@ -174,7 +177,7 @@ def centerline_from_contours( contours, len_thresh:int = -1, bspline_k:int = -1,
     contours_filt = [c for c in contours if len( c ) >= len_thresh]
     
     # numpy-tize points
-    pts = np.unique( np.vstack( contours_filt ).squeeze(), axis = 0 )
+    pts = np.unique( np.vstack( contours_filt ).squeeze(), axis = 0 ) * np.array( scale ).reshape( 1, 2 )
     
     # outlier detection
     if ( outlier_thresh >= 0 ) and ( num_neigbors > 0 ):
@@ -199,7 +202,7 @@ def centerline_from_contours( contours, len_thresh:int = -1, bspline_k:int = -1,
         
     # if: bspline
 
-    return pts, bspline
+    return pts / np.array( scale ).reshape( 1, 2 ), bspline
 
 # centerline from_contours
 
@@ -1183,7 +1186,7 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
     left_gray = cv.cvtColor( left_rect, cv.COLOR_BGR2GRAY )
     right_gray = cv.cvtColor( right_rect, cv.COLOR_BGR2GRAY )
     imgs_ret['rect-gray'] = imconcat( left_gray, right_gray )
-    left_thresh, right_thresh = thresh( left_gray, right_gray, thresh = 70 )
+    left_thresh, right_thresh = thresh( left_gray, right_gray, thresh = 65 )
     left_thresh_low, right_thresh_low = thresh( left_gray, right_gray, thresh = 12 )  # remove black colors
     left_thresh *= ( left_thresh_low == 0 )
     right_thresh *= ( right_thresh_low == 0 )
@@ -1218,30 +1221,42 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
     bspl_k = 2
     out_thresh = 0.5
     n_neigh = 50
+    scale = ( 5, 1/10 )
    
     pts_l, bspline_l = centerline_from_contours( conts_l,
                                                   len_thresh = len_thresh,
                                                   bspline_k = bspl_k,
                                                   outlier_thresh = out_thresh,
-                                                  num_neigbors = n_neigh )
+                                                  num_neigbors = n_neigh, scale = scale )
     
     pts_r, bspline_r = centerline_from_contours( conts_r,
                                                   len_thresh = len_thresh,
                                                   bspline_k = bspl_k,
                                                   outlier_thresh = out_thresh,
-                                                  num_neigbors = n_neigh )
+                                                  num_neigbors = n_neigh, scale = scale )
     
-    left_rect_draw = cv.polylines( left_rect.copy(), [pts_l.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
-    right_rect_draw = cv.polylines( right_rect.copy(), [pts_r.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+    left_rect_draw = cv.polylines( left_rect_full.copy(), [pts_l.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+    right_rect_draw = cv.polylines( right_rect_full.copy(), [pts_r.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
     imgs_ret['contours'] = imconcat( left_rect_draw, right_rect_draw, [0, 0, 255] )
 
     # stereo matching
     left_rect_gray = cv.cvtColor( left_rect_full, cv.COLOR_BGR2GRAY )
     right_rect_gray = cv.cvtColor( right_rect_full, cv.COLOR_BGR2GRAY )
-    pts_l_match, pts_r_match = stereomatch_normxcorr( pts_l, pts_r,
-                                                      left_rect_gray, right_rect_gray,
-                                                      winsize = winsize, zoom = zoom,
-                                                      score_thresh = 0.5 )
+    al_l = np.linalg.norm( np.diff( pts_l, axis = 0 ), axis = 1 ).sum()
+    al_r = np.linalg.norm( np.diff( pts_r, axis = 0 ), axis = 1 ).sum()
+    if al_l >= al_r and False:
+        pts_l_match, pts_r_match = stereomatch_normxcorr( pts_l, pts_r,
+                                                          left_rect_gray, right_rect_gray,
+                                                          winsize = winsize, zoom = zoom,
+                                                          score_thresh = 0.5 )  # left search right
+    # if
+    
+    else:
+        pts_r_match, pts_l_match = stereomatch_normxcorr( pts_r, pts_l,
+                                                          right_rect_gray, left_rect_gray,
+                                                          winsize = winsize, zoom = zoom,
+                                                          score_thresh = 0.5 )  # right search left
+    # else
     
     idx_l = np.argsort( pts_l_match[:, 1] )
     pts_l_match = pts_l_match[idx_l]
@@ -1252,15 +1267,15 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
         bspline_l_match = BSpline1D( pts_l_match[:, 1], pts_l_match[:, 0], k = 2 )
         bspline_r_match = BSpline1D( pts_r_match[:, 1], pts_r_match[:, 0], k = 2 )
         s = np.linspace( 0, 1, 200 )
-        pts_l_match = np.vstack( ( bspline_l_match.eval_unscale( s ), bspline_l_match.unscale( s ) ) ).T # (j, i)
-        pts_r_match = np.vstack( ( bspline_r_match.eval_unscale( s ), bspline_r_match.unscale( s ) ) ).T # (j, i)
+        pts_l_match = np.vstack( ( bspline_l_match.eval_unscale( s ), bspline_l_match.unscale( s ) ) ).T  # (j, i)
+        pts_r_match = np.vstack( ( bspline_r_match.eval_unscale( s ), bspline_r_match.unscale( s ) ) ).T  # (j, i)
         
     # if
     
     # = add to images
-    left_rect_match_draw = cv.polylines( left_rect.copy(),
+    left_rect_match_draw = cv.polylines( left_rect_full.copy(),
                                          [pts_l_match.reshape( -1, 1, 2 ).round().astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
-    right_rect_match_draw = cv.polylines( right_rect.copy(),
+    right_rect_match_draw = cv.polylines( right_rect_full.copy(),
                                           [pts_r_match.reshape( -1, 1, 2 ).round().astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
     imgs_ret['contours-match'] = imconcat( left_rect_match_draw, right_rect_match_draw, [0, 0, 255] )
     
@@ -2132,42 +2147,49 @@ def main_insertionval( insertion_dirs, stereo_params, save_bool:bool = False,
 #         # testings to skip
 #         if ins_dist != 90:
 #             continue
-#         
+#          
 #         # if
         
+        if ins_num != 3:
+            continue
+                
         # blackout-regions
         bors_l = []
         bors_r = []
         
         # load in the pre-determined ROIs
-#         rois_rl = np.load( ins_dir + 'rois_lr.npy' )
-        if ins_num < 2:
-            roi_l = [[62, 300], [-250, 400]]
-            roi_r = [[55, 325], [-250, 425]]
-
-        elif ins_num < 3:
-            roi_l = [[62, 300], [-250, 450]]
-            roi_r = [[55, 325], [-250, 475]]
-            
-        elif ins_num < 5:
-            roi_l = [[62, 400], [-250, 550]]
-            roi_r = [[55, 425], [-250, 575]]
-            
-        elif ins_num < 7:
-            roi_l = [[62, 450], [-250, 600]]
-            roi_r = [[55, 475], [-250, 625]]
-            
-        elif ins_num < 9:
-            roi_l = [[62, 525], [-250, 675]]
-            roi_r = [[55, 550], [-250, 700]]
-            
-        elif ins_num < 10:
-            roi_l = [[62, 575], [-250, 725]]
-            roi_r = [[55, 600], [-250, 750]]
-            
-        else:
-            roi_l = []
-            roi_r = []
+        h_off = 3
+        r_off = -100
+        rois_lr = np.load( ins_dir + 'rois_lr.npy' ) + np.array( [[h_off, 0, h_off, 0], [0, r_off, 0, r_off]] ).reshape( 1, 2, 4 )
+        roi_l = rois_lr[0,:, 0:2]
+        roi_r = rois_lr[0,:, 2:4]
+#         if ins_num < 2:
+#             roi_l = [[62, 300], [-250, 400]]
+#             roi_r = [[55, 325], [-250, 425]]
+# 
+#         elif ins_num < 3:
+#             roi_l = [[62, 300], [-250, 450]]
+#             roi_r = [[55, 325], [-250, 475]]
+#             
+#         elif ins_num < 5:
+#             roi_l = [[62, 400], [-250, 550]]
+#             roi_r = [[55, 425], [-250, 575]]
+#             
+#         elif ins_num < 7:
+#             roi_l = [[62, 450], [-250, 600]]
+#             roi_r = [[55, 475], [-250, 625]]
+#             
+#         elif ins_num < 9:
+#             roi_l = [[62, 525], [-250, 675]]
+#             roi_r = [[55, 550], [-250, 700]]
+#             
+#         elif ins_num < 10:
+#             roi_l = [[62, 575], [-250, 725]]
+#             roi_r = [[55, 600], [-250, 750]]
+#             
+#         else:
+#             roi_l = []
+#             roi_r = []
         
         # load the images
         left_file = ins_dir + 'left.png'
@@ -2650,7 +2672,7 @@ if __name__ == '__main__':
     needle_dir = stereo_dir + "needle_examples/"  # needle insertion examples directory
     grid_dir = stereo_dir + "grid_only/"  # grid testqing directory
     valid_dir = stereo_dir + "stereo_validation_jig/"  # validation directory
-    insertion_dir = "../../data/needle_3CH_3AA/01-18-2021_Test-Insertion-Expmt/"
+    insertion_dir = "../../data/needle_3CH_3AA/01-27-2021_Test-Refraction/"
     
     curvature_dir = glob.glob( valid_dir + 'k_*/' )  # validation curvature directories
     curvature_dir = sorted( curvature_dir )
