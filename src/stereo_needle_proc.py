@@ -1162,7 +1162,7 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
     # stereo rectify the images
     left_rect, right_rect, _, map_l, map_r = stereo_rectify( left_roibo, right_roibo, stereo_params,
                                                                        interp_method = cv.INTER_LINEAR, alpha = alpha,
-                                                                       force_recalc = recalc_stereo )
+                                                                       recalc_stereo = recalc_stereo )
     imgs_ret['rect-roi'] = imconcat( left_rect, right_rect, [0, 0, 255] )
     
     # = apply stereo rectification map to full image
@@ -1183,7 +1183,7 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
     left_gray = cv.cvtColor( left_rect, cv.COLOR_BGR2GRAY )
     right_gray = cv.cvtColor( right_rect, cv.COLOR_BGR2GRAY )
     imgs_ret['rect-gray'] = imconcat( left_gray, right_gray )
-    left_thresh, right_thresh = thresh( left_gray, right_gray, thresh = 60 )
+    left_thresh, right_thresh = thresh( left_gray, right_gray, thresh = 70 )
     left_thresh_low, right_thresh_low = thresh( left_gray, right_gray, thresh = 12 )  # remove black colors
     left_thresh *= ( left_thresh_low == 0 )
     right_thresh *= ( right_thresh_low == 0 )
@@ -1243,10 +1243,6 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
                                                       winsize = winsize, zoom = zoom,
                                                       score_thresh = 0.5 )
     
-    pts_r_match, pts_l_match = stereomatch_normxcorr( pts_r, pts_l,
-                                                      right_rect_gray, left_rect_gray,
-                                                      winsize = winsize, zoom = zoom,
-                                                      score_thresh = 0.5 )
     idx_l = np.argsort( pts_l_match[:, 1] )
     pts_l_match = pts_l_match[idx_l]
     pts_r_match = pts_r_match[idx_l]
@@ -1256,8 +1252,8 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
         bspline_l_match = BSpline1D( pts_l_match[:, 1], pts_l_match[:, 0], k = 2 )
         bspline_r_match = BSpline1D( pts_r_match[:, 1], pts_r_match[:, 0], k = 2 )
         s = np.linspace( 0, 1, 200 )
-        pts_l_match = np.vstack( ( bspline_l_match.eval_unscale( s ), bspline_l_match.unscale( s ) ) ).T
-        pts_r_match = np.vstack( ( bspline_r_match.eval_unscale( s ), bspline_r_match.unscale( s ) ) ).T
+        pts_l_match = np.vstack( ( bspline_l_match.eval_unscale( s ), bspline_l_match.unscale( s ) ) ).T # (j, i)
+        pts_r_match = np.vstack( ( bspline_r_match.eval_unscale( s ), bspline_r_match.unscale( s ) ) ).T # (j, i)
         
     # if
     
@@ -1269,6 +1265,8 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
     imgs_ret['contours-match'] = imconcat( left_rect_match_draw, right_rect_match_draw, [0, 0, 255] )
     
     # stereo 
+#     pts_l_match = np.flip( pts_l_match, axis = 1 ) # align so (x, y) = (j, i)
+#     pts_r_match = np.flip( pts_r_match, axis = 1 ) # align so (x, y) = (j, i)
     pts_3d = cv.triangulatePoints( stereo_params['P1'], stereo_params['P2'], pts_l_match.T, pts_r_match.T )
     pts_3d /= pts_3d[-1,:]
     pts_3d = pts_3d.T
@@ -1563,7 +1561,7 @@ def stereo_disparity( left_gray, right_gray, stereo_params: dict ):
 
 
 def stereo_rectify( img_left, img_right, stereo_params, interp_method = cv.INTER_LINEAR, alpha:float = -1,
-                   force_recalc: bool = False ):
+                   recalc_stereo: bool = True ):
     # gray-scale the image
     left_gray = cv.cvtColor( img_left, cv.COLOR_BGR2GRAY )
     right_gray = cv.cvtColor( img_right, cv.COLOR_BGR2GRAY )
@@ -1576,7 +1574,7 @@ def stereo_rectify( img_left, img_right, stereo_params, interp_method = cv.INTER
     R = stereo_params['R'].astype( float )
     t = stereo_params['t'].astype( float )
     
-    if force_recalc or any( k not in stereo_params.keys() for k in ['R1', 'R2', 'P1', 'P2'] ):
+    if recalc_stereo or any( k not in stereo_params.keys() for k in ['R1', 'R2', 'P1', 'P2'] ):
         R_l, R_r, P_l, P_r, Q, roi_l, roi_r = cv.stereoRectify( K_l, dists_l, K_r, dists_r, left_gray.shape[::-1],
                                                  R, t, alpha = alpha )
         stereo_params['R1'] = R_l
@@ -2652,7 +2650,7 @@ if __name__ == '__main__':
     needle_dir = stereo_dir + "needle_examples/"  # needle insertion examples directory
     grid_dir = stereo_dir + "grid_only/"  # grid testqing directory
     valid_dir = stereo_dir + "stereo_validation_jig/"  # validation directory
-    insertion_dir = "../../data/needle_3CH_3AA/01-27-2021_Test-Refraction/"
+    insertion_dir = "../../data/needle_3CH_3AA/01-18-2021_Test-Insertion-Expmt/"
     
     curvature_dir = glob.glob( valid_dir + 'k_*/' )  # validation curvature directories
     curvature_dir = sorted( curvature_dir )
@@ -2662,8 +2660,8 @@ if __name__ == '__main__':
     insertion_dirs = sorted( [d.replace( '\\', '/' ) for d in insertion_dirs] )
     
     # load matlab stereo calibration parameters
-    stereo_param_dir = "../calibration/Stereo_Camera_Calibration_10-23-2020"
-    stereo_param_file = stereo_param_dir + "/calibrationSession_params-error_opencv-struct.mat"
+    stereo_param_dir = "../calibration/Stereo_Camera_Calibration_02-08-2021/6x7_5mm/"
+    stereo_param_file = stereo_param_dir + "calibrationSession_params-error_opencv-struct.mat"
     stereo_params = load_stereoparams_matlab( stereo_param_file )
     
     # regex pattern
