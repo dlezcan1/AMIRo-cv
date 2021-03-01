@@ -1,11 +1,11 @@
 %% stereo_validation.m
 %
-% function to process a stereo data file
+% function to process a stereo data file for constant curvature jig
 %
 % - written by: Dimitri Lezcano
 
 
-function [nurbs_interp_tf, jig_shape] = stereo_validation(file_num, curv_dir, kwargs)
+function [nurbs_interp_tf, jig_shape, errors] = stereo_validation(file_num, curv_dir, kwargs)
     %% Argument Parsing
     arguments
        file_num

@@ -14,6 +14,8 @@ re_patt = "left-right-([0-9]{4})";
 
 
 %% Process each curvature directory
+errors_trials = cell(0);
+idx = 1;
 for i = 1:length(curvature_dirs)
     curv_dir = curvature_dirs(i);
     fprintf("Processing directory: %s\n", curv_dir);
@@ -23,7 +25,11 @@ for i = 1:length(curvature_dirs)
     
     for img_num = img_nums
         fprintf('Processing img #%04d\n', img_num);
-        stereo_validation(img_num, curv_dir, 'save_dir', curv_dir);
+        [~, ~, e] = stereo_validation(img_num, curv_dir, 'save_dir', curv_dir);
+        if all(e.L2 <= 1)
+            errors_trials{idx} = e;
+            idx = idx + 1;
+        end
         pause(1);
         disp(' ');
     end  

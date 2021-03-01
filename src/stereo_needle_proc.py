@@ -1020,7 +1020,7 @@ def needle_jig_reconstruction_refined( img_left, img_right, stereo_params,
     # stereo rectify the images
     left_rect, right_rect, _, map_l, map_r = stereo_rectify( left_roibo, right_roibo, stereo_params,
                                                                        interp_method = cv.INTER_LINEAR, alpha = alpha,
-                                                                       force_recalc = recalc_stereo )
+                                                                       recalc_stereo = recalc_stereo )
     imgs_ret['rect'] = imconcat( left_rect, right_rect, [0, 0, 255] )
     
     # # map the rois
@@ -3014,8 +3014,8 @@ def main_needleval( file_nums, img_dir, stereo_params, save_dir = None,
 
 if __name__ == '__main__':
     # set-up
-    validation = False
-    insertion_expmt = True
+    validation = True
+    insertion_expmt = False
     proc_show = False
     res_show = False
     save_bool = True
@@ -3029,7 +3029,7 @@ if __name__ == '__main__':
     
     curvature_dir = glob.glob( valid_dir + 'k_*/' )  # validation curvature directories
     curvature_dir = sorted( curvature_dir )
-    curvature_dir = []  # cancel it out | don't want to do this right now
+#     curvature_dir = []  # cancel it out | don't want to do this right now
     
     insertion_dirs = glob.glob( insertion_dir + "Insertion*/" )
     insertion_dirs = sorted( [d.replace( '\\', '/' ) for d in insertion_dirs] )
@@ -3066,7 +3066,8 @@ if __name__ == '__main__':
              
             except Exception as e:
                 print( e )
-                print( 'Continuing...' )
+                print( 'Continuing...' ) 
+                raise e
                     
             # except
             
