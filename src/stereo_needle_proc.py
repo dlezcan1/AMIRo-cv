@@ -32,6 +32,7 @@ from BSpline1D import BSpline1D
 
 # custom functions
 from needle_segmentation_functions import find_coordinate_image, find_hsv_image
+from builtins import FileNotFoundError
 
 # color HSV ranges
 COLOR_HSVRANGE_RED = ( ( 0, 50, 50 ), ( 10, 255, 255 ) )
@@ -1139,10 +1140,209 @@ def needle_jig_reconstruction_refined( img_left, img_right, stereo_params,
 # needle_jig_reconstruction_refined
 
 
+def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref,
+                              bor_l: list = [], bor_r:list = [],
+                              roi_l = (), roi_r = (),
+                              alpha:float = 0.5, recalc_stereo:bool = True,
+                              zoom: float = 1.0, winsize:tuple = ( 31, 31 ),
+                              sub_thresh: int = 55, proc_show: bool = False ):
+    ''' This is a method to perform needle reconstruction on an image
+        using a reference image prior to insertion for image subtraction
+        
+    '''
+    # prepare images
+    imgs_ret = {}
+    
+    # grayscale the images
+    left_gray = cv.cvtColor( left_img, cv.COLOR_BGR2GRAY )
+    right_gray = cv.cvtColor( right_img, cv.COLOR_BGR2GRAY )
+    left_ref_gray = cv.cvtColor( left_ref, cv.COLOR_BGR2GRAY )
+    right_ref_gray = cv.cvtColor( right_ref, cv.COLOR_BGR2GRAY )
+    
+    # segment each image
+    left_seg = segment_needle_subtract( left_gray, left_ref_gray, threshold = sub_thresh )
+    right_seg = segment_needle_subtract( right_gray, right_ref_gray, threshold = sub_thresh )
+    imgs_ret['seg'] = imconcat( 255 * left_seg, 255 * right_seg, 125 )
+    
+    # - roi the images
+    left_roi = roi( left_img, roi_l, full = True )
+    right_roi = roi( right_img, roi_r, full = True )
+    
+    # - black-out regions
+    left_roibo = blackout_regions( left_roi, bor_l )
+    right_roibo = blackout_regions( right_roi, bor_r )
+    imgs_ret['roibo'] = imconcat( left_roibo, right_roibo, 125 )
+    
+    # stereo rectify the images
+    left_rect, right_rect, _, map_l, map_r = stereo_rectify( left_roibo, right_roibo, stereo_params,
+                                                                       interp_method = cv.INTER_LINEAR, alpha = alpha,
+                                                                       recalc_stereo = recalc_stereo )
+    imgs_ret['rect-roi'] = imconcat( left_rect, right_rect, [0, 0, 255] )
+    
+    # = apply stereo rectification map to full image
+    left_rect_full = cv.remap( left_img, map_l[0], map_l[1], cv.INTER_LINEAR )
+    right_rect_full = cv.remap( right_img, map_r[0], map_r[1], cv.INTER_LINEAR )
+    imgs_ret['rect'] = imconcat( left_rect_full, right_rect_full, [0, 0, 255] )
+    
+    # - apply stereo rectification map to segmented images
+    left_seg_rect = cv.remap( left_seg, map_l[0], map_l[1], cv.INTER_NEAREST )
+    right_seg_rect = cv.remap( right_seg, map_r[0], map_r[1], cv.INTER_NEAREST )
+    imgs_ret['rect-seg'] = imconcat( 255 * left_seg_rect, 255 * right_seg_rect, 125 )
+    
+    # - map the rois
+    boroi_l_img = roi_image( roi_l, left_img.shape ) & blackout_image( bor_l, left_img.shape )
+    boroi_r_img = roi_image( roi_r, right_img.shape ) & blackout_image( bor_r, right_img.shape )
+    imgs_ret['roi-bo-bool'] = imconcat( 255 * boroi_l_img, 255 * boroi_r_img, 125 )
+    
+    boroi_l_mapped = cv.remap( boroi_l_img.astype( np.uint8 ), map_l[0], map_l[1], cv.INTER_NEAREST )
+    boroi_r_mapped = cv.remap( boroi_r_img.astype( np.uint8 ), map_r[0], map_r[1], cv.INTER_NEAREST )
+    imgs_ret['boroi-bool-mapped'] = imconcat( 255 * boroi_l_mapped, 255 * boroi_r_mapped, 125 )
+    
+    # = remove extra borders threshed out
+    left_seg_rect *= boroi_l_mapped.astype( np.uint8 )
+    right_seg_rect *= boroi_r_mapped.astype( np.uint8 )
+    imgs_ret['seg-rect-boroi'] = imconcat( 255 * left_seg_rect, 255 * right_seg_rect, 125 )
+    
+    # get the image contours
+    left_skel, right_skel = skeleton( left_seg_rect, right_seg_rect )
+    imgs_ret['skel'] = imconcat( 255 * left_skel, 255 * right_skel, 125 ).astype( np.uint8 )
+    conts_l, conts_r = contours( left_skel, right_skel )
+    
+    # - outlier options
+    len_thresh = 5
+    bspl_k = 2
+    out_thresh = 1
+    n_neigh = 20
+    scale = ( 1, 1 )
+   
+    pts_l, bspline_l = centerline_from_contours( conts_l,
+                                                  len_thresh = len_thresh,
+                                                  bspline_k = bspl_k,
+                                                  outlier_thresh = out_thresh,
+                                                  num_neigbors = n_neigh, scale = scale )
+    
+    pts_r, bspline_r = centerline_from_contours( conts_r,
+                                                  len_thresh = len_thresh,
+                                                  bspline_k = bspl_k,
+                                                  outlier_thresh = out_thresh,
+                                                  num_neigbors = n_neigh, scale = scale )
+    
+    left_rect_draw = cv.polylines( left_rect_full.copy(), [pts_l.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+    right_rect_draw = cv.polylines( right_rect_full.copy(), [pts_r.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+    imgs_ret['contours'] = imconcat( left_rect_draw, right_rect_draw, [0, 0, 255] )
+
+    # stereo matching
+    left_rect_gray = cv.cvtColor( left_rect_full, cv.COLOR_BGR2GRAY )
+    right_rect_gray = cv.cvtColor( right_rect_full, cv.COLOR_BGR2GRAY )
+    al_l = np.linalg.norm( np.diff( pts_l, axis = 0 ), axis = 1 ).sum()
+    al_r = np.linalg.norm( np.diff( pts_r, axis = 0 ), axis = 1 ).sum()
+    if al_l >= al_r or True: # force left to be static (most photographically stable)
+        pts_l_match, pts_r_match = stereomatch_normxcorr( pts_l, pts_r,
+                                                          left_rect_gray, right_rect_gray,
+                                                          winsize = winsize, zoom = zoom,
+                                                          score_thresh = 0.5 )  # left search right
+    # if
+    
+    else:
+        pts_r_match, pts_l_match = stereomatch_normxcorr( pts_r, pts_l,
+                                                          right_rect_gray, left_rect_gray,
+                                                          winsize = winsize, zoom = zoom,
+                                                          score_thresh = 0.5 )  # right search left
+    # else
+    
+    idx_l = np.argsort( pts_l_match[:, 1] )
+    pts_l_match = pts_l_match[idx_l]
+    pts_r_match = pts_r_match[idx_l]
+    
+    # bspline fit the matching points
+    if bspl_k > 0:
+        bspline_l_match = BSpline1D( pts_l_match[:, 1], pts_l_match[:, 0], k = 2 )
+        bspline_r_match = BSpline1D( pts_r_match[:, 1], pts_r_match[:, 0], k = 2 )
+        s = np.linspace( 0, 1, 200 )
+        pts_l_match = np.vstack( ( bspline_l_match.eval_unscale( s ), bspline_l_match.unscale( s ) ) ).T  # (j, i)
+        pts_r_match = np.vstack( ( bspline_r_match.eval_unscale( s ), bspline_r_match.unscale( s ) ) ).T  # (j, i)
+        
+    # if
+    
+    # = add to images
+    left_rect_match_draw = cv.polylines( left_rect_full.copy(),
+                                         [pts_l_match.reshape( -1, 1, 2 ).round().astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+    right_rect_match_draw = cv.polylines( right_rect_full.copy(),
+                                          [pts_r_match.reshape( -1, 1, 2 ).round().astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+    imgs_ret['contours-match'] = imconcat( left_rect_match_draw, right_rect_match_draw, [0, 0, 255] )
+    
+    # stereo 
+    pts_3d = cv.triangulatePoints( stereo_params['P1'], stereo_params['P2'], pts_l_match.T, pts_r_match.T )
+    pts_3d /= pts_3d[-1,:]
+    pts_3d = pts_3d.T
+    
+    # show processing
+    figs_ret = {}
+    if proc_show:
+        
+        figs_ret['seg'] = plt.figure( figsize = ( 12, 8 ) )
+        plt.imshow( imgs_ret['seg'], cmap = 'gray' )
+        plt.title( 'Segmented needle' )
+        
+        figs_ret['rect'] = plt.figure( figsize = ( 12, 8 ) )
+        plt.imshow( imgs_ret['rect'][:,:,::-1] )
+        plt.title( 'Rectified Images' )
+        
+        figs_ret['rect-roi'] = plt.figure( figsize = ( 12, 8 ) )
+        plt.imshow( imconcat( left_rect, right_rect, [0, 0, 255] )[:,:,::-1] )
+        plt.title( 'Rectified Images: ROI' )
+        
+        figs_ret['rect-seg'] = plt.figure( figsize = ( 12, 8 ) )
+        plt.imshow( imgs_ret['seg-rect'], cmap = 'gray' )
+        plt.title( 'Segmented rectified images' )
+
+        figs_ret['skel'] = plt.figure( figsize = ( 12, 8 ) )
+        plt.imshow( imconcat( left_skel, right_skel, 125 ), cmap = 'gray' )
+        plt.title( 'Skeletonized threshold' )
+        
+        figs_ret['centerline'] = plt.figure( figsize = ( 12, 8 ) )
+        plt.imshow( imconcat( left_rect_draw, right_rect_draw, [0, 0, 255] )[:,:,::-1] )
+        plt.title( 'centerline points' )
+        
+        figs_ret['centerline-plot'] = plt.figure( figsize = ( 12, 8 ) )
+        plt.plot( pts_l[:, 0], pts_l[:, 1], '.', label = 'left' )
+        plt.plot( pts_r[:, 0], pts_r[:, 1], '.', label = 'right' )
+        plt.gca().invert_yaxis()
+        plt.title( 'centerline points' )
+        plt.legend()
+        
+        figs_ret['centerline-matches'] = plt.figure( figsize = ( 12, 8 ) )
+        plt.imshow( imconcat( left_rect_match_draw, right_rect_match_draw, [0, 0, 255] )[:,:,::-1] )
+        plt.title( 'matched centerline points' )
+        
+        figs_ret['centerline-matches-plot'] = plt.figure( figsize = ( 12, 8 ) )
+        plt.plot( pts_l_match[:, 0], pts_l_match[:, 1], '.', label = 'left' )
+        plt.plot( pts_r_match[:, 0], pts_r_match[:, 1], '.', label = 'right' )
+        plt.gca().invert_yaxis()
+        plt.title( 'matched centerline points' )
+        plt.legend()
+        
+        figs_ret['disparity'] = plt.figure( figsize = ( 8, 8 ) )
+        plt.plot( pts_l_match[:, 0] - pts_r_match[:, 0] )
+        plt.title( 'disparity' )
+        
+        figs_ret['3d'] = plt.figure( figsize = ( 8, 8 ) )
+        _, ax = plot3D_equal( pts_3d[:,:3], figs_ret['3d'], 1 )
+        plt.title( '3-D reconstruction' )
+        
+        plt.show()
+
+    # if
+    
+    return pts_3d, pts_l, pts_r, bspline_l, bspline_r, imgs_ret, figs_ret
+    
+# needle_reconstruction_ref
+
+
 def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
                                           bor_l:list = [], bor_r:list = [],
                                           roi_l = (), roi_r = (),
-                                          alpha: float = 0.5, recalc_stereo:bool = False,
+                                          alpha: float = 0.5, recalc_stereo:bool = True,
                                           zoom: float = 1.0, winsize:tuple = ( 31, 21 ),
                                           proc_show: bool = False ):
     ''' This is function for performing a 3-D needle reconstruction from a raw stereo pair'''
@@ -1216,12 +1416,12 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
     imgs_ret['skel'] = imconcat( 255 * left_skel, 255 * right_skel, 125 ).astype( np.uint8 )
     conts_l, conts_r = contours( left_skel, right_skel )
     
-    # # outlier options
+    # - outlier options
     len_thresh = 5
     bspl_k = 2
     out_thresh = 0.5
     n_neigh = 50
-    scale = ( 5, 1/10 )
+    scale = ( 5, 1 / 10 )
    
     pts_l, bspline_l = centerline_from_contours( conts_l,
                                                   len_thresh = len_thresh,
@@ -1539,6 +1739,27 @@ def roi_image( reg_of_int, image_size ):
     return roi_bool
     
 # roi_image
+
+
+def segment_needle_subtract( img, ref_img, threshold ):
+    ''' This is a method to segment the needle by subtracting out the background of an image
+        
+        (Note: threshold of 55 seems to work OK)
+    
+    '''
+    diff_img = ref_img.astype( int ) - img.astype( int )  # needle is darker therefore, diff > 0 is what we want to highlight
+    
+    hl_img = diff_img * ( diff_img > 0 )  # highlight only positive changes
+    
+    thresh_img = ( hl_img >= threshold ).astype( np.uint8 )
+    
+    # morphological operations
+    bin_img = cv.morphologyEx( thresh_img, cv.MORPH_OPEN, np.ones( ( 3, 3 ) ) )
+    bin_img = cv.morphologyEx( bin_img, cv.MORPH_CLOSE, np.ones( ( 3, 3 ) ) )
+    
+    return bin_img
+    
+# segment_needle_subtract
 
 
 def skeleton( left_bin, right_bin ):
@@ -2114,6 +2335,138 @@ def main_img_gui( file_num, img_dir ):
 # main_img_gui
 
 
+def main_insertion_sub( insertion_dirs, stereo_params, save_bool:bool = False,
+                    proc_show:bool = False, res_show:bool = False ):
+    ''' main method for running through insertion data 
+        
+        insertion_dirs are all the insertion directories (will find each of the insertion distances
+    
+    '''
+    # regexp pattens
+    pattern = r".*/Insertion([0-9]+)/([0-9]+)/?"
+    
+    # iterate through the directories
+    time_trials = []
+    for ins_dir in insertion_dirs:
+        print( 100 * '=' )
+        print( f"Processing directory: {ins_dir}" )
+        # load in the reference images
+        ref_dir = ins_dir + "0/"
+        left_ref = cv.imread( ref_dir + "left.png", cv.IMREAD_ANYCOLOR )
+        right_ref = cv.imread( ref_dir + "right.png", cv.IMREAD_ANYCOLOR )
+        
+        # - check for reference images
+        if left_ref is None:
+            print( "Could not find left reference image: {}".format( ref_dir + "left.png" ) )
+            continue
+        
+        # if
+        
+        if right_ref is None:
+            print( "Could not find right reference image: {}".format( ref_dir + "right.png" ) )
+            continue
+        
+        # if
+        
+        # load other insertion directories
+        ins_dist_dirs = sorted( [d.replace( '\\', '/' ) for d in glob.glob( ins_dir + "*/" )] ) 
+        
+        for ins_dist_dir in ins_dist_dirs:
+            # regular expression matching
+            res = re.match( pattern, ins_dist_dir )
+            if res is None:
+                print( ins_dist_dir, 'is not a valid directory format.' )
+                continue
+            
+            # if
+            
+            else:
+                ins_num, ins_dist = res.groups()
+                ins_num = int( ins_num )
+                ins_dist = float( ins_dist )
+               
+            # else
+            
+            # make sure for positive insertion distance
+            if ins_dist <= 0:
+                continue
+            
+            # if
+            
+            # blackout-regions
+            bors_l = []
+            bors_r = []
+            
+            # load in the pre-determined ROIs
+            roi_l = [[80, 200], [-1, -275]] 
+            roi_r = [[70, 260], [-1, -235]]
+            
+            # load the images
+            left_file = ins_dist_dir + 'left.png'
+            right_file = ins_dist_dir + 'right.png'
+    
+            left_img = cv.imread( left_file, cv.IMREAD_ANYCOLOR )
+            right_img = cv.imread( right_file, cv.IMREAD_ANYCOLOR )
+            
+            # perform the reconstruction
+            t0 = time.time()
+            pts_3d, *_, proc_images, figures = needle_reconstruction_ref( left_img, left_ref,
+                                                                          right_img, right_ref,
+                                                                          bor_l = bors_l, bor_r = bors_r,
+                                                                          roi_l = roi_l, roi_r = roi_r,
+                                                                          alpha = 0.6, recalc_stereo = True,
+                                                                          zoom = 3, winsize = ( 41, 41 ),
+                                                                          sub_thresh = 50, proc_show = proc_show )
+            
+            arclength = np.linalg.norm( np.diff( pts_3d, axis = 0 ), axis = 1 ).sum()
+            print( f"Arclength of reconstruction: {arclength:.3f} mm" )
+            # measure the time per trial
+            dt = time.time() - t0
+            time_trials.append( dt )
+            if save_bool:
+                print( 'Saving figures and files...' )
+                save_fbase = ins_dist_dir + "left-right_{:s}"
+                
+                # save the 3-D points
+                np.savetxt( save_fbase.format( '3d-pts' ) + '.txt', pts_3d )
+                print( 'Saved data file:', save_fbase.format( '3d-pts' ) + '.txt' )
+                
+                # save the processed images
+                for key, imgs in proc_images.items():
+                    cv.imwrite( save_fbase.format( key ) + '.png', imgs )
+                    print( 'Saved figure:', save_fbase.format( key ) + '.png' )    
+                    
+                # for: images
+                
+                # save the figures
+                for key, fig in figures.items():
+                    fig.savefig( save_fbase.format( key + '-fig' ) + '.png' )
+                    print( 'Saved figure:', save_fbase.format( key + '-fig' ) + '.png' )
+                    
+                # for: figures
+                
+                print( 'Finished saving files and figures.', end = '\n\n' + 80 * '=' + '\n\n' )
+                
+            # if
+            
+            print( f"Completed trial: '{ins_dist_dir}'." )
+            print( f'Time for Trial: {round(dt/60)} mins. {dt%60:.2f} s' )
+            print( '\n' + 75 * '=', end = '\n\n' )
+            plt.close( 'all' )
+            
+        # for
+        
+        # display average time.
+        if len( time_trials ) > 0:
+            dt_avg = sum( time_trials ) / len( time_trials )
+            print( f'Average time for all: {round(dt_avg/60)} mins. {dt_avg%60:.2f} s' )
+            
+        # if
+    # for
+    
+# main_insertion_sub
+
+
 def main_insertionval( insertion_dirs, stereo_params, save_bool:bool = False,
                     proc_show:bool = False, res_show:bool = False ):
     ''' main method for running through insertion data '''
@@ -2672,13 +3025,13 @@ if __name__ == '__main__':
     needle_dir = stereo_dir + "needle_examples/"  # needle insertion examples directory
     grid_dir = stereo_dir + "grid_only/"  # grid testqing directory
     valid_dir = stereo_dir + "stereo_validation_jig/"  # validation directory
-    insertion_dir = "../../data/needle_3CH_3AA/01-27-2021_Test-Refraction/"
+    insertion_dir = "../../data/needle_3CH_3AA/02-22-2021_Test-Image-Subtraction/"
     
     curvature_dir = glob.glob( valid_dir + 'k_*/' )  # validation curvature directories
     curvature_dir = sorted( curvature_dir )
     curvature_dir = []  # cancel it out | don't want to do this right now
     
-    insertion_dirs = glob.glob( insertion_dir + "Insertion*/*/" )
+    insertion_dirs = glob.glob( insertion_dir + "Insertion*/" )
     insertion_dirs = sorted( [d.replace( '\\', '/' ) for d in insertion_dirs] )
     
     # load matlab stereo calibration parameters
@@ -2725,8 +3078,10 @@ if __name__ == '__main__':
     
     # run the insertion experiment
     if insertion_expmt:
-        main_insertionval( insertion_dirs, stereo_params, save_bool = save_bool,
-                          proc_show = proc_show, res_show = res_show )
+#         main_insertionval( insertion_dirs, stereo_params, save_bool = save_bool,
+#                           proc_show = proc_show, res_show = res_show )
+        main_insertion_sub( insertion_dirs, stereo_params, save_bool = save_bool,
+                            proc_show = proc_show, res_show = res_show )
 
     # if
     
