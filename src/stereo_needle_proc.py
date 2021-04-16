@@ -1160,9 +1160,10 @@ def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref,
     right_ref_gray = cv.cvtColor( right_ref, cv.COLOR_BGR2GRAY )
     
     # segment each image
-    left_seg = segment_needle_subtract( left_gray, left_ref_gray, threshold = sub_thresh )
-    right_seg = segment_needle_subtract( right_gray, right_ref_gray, threshold = sub_thresh )
+    left_seg, left_sub = segment_needle_subtract( left_gray, left_ref_gray, threshold = sub_thresh )
+    right_seg, right_sub = segment_needle_subtract( right_gray, right_ref_gray, threshold = sub_thresh )
     imgs_ret['seg'] = imconcat( 255 * left_seg, 255 * right_seg, 125 )
+    imgs_ret['sub'] = imconcat( left_sub, right_sub, 125 )
     
     # - roi the images
     left_roi = roi( left_img, roi_l, full = True )
@@ -1236,7 +1237,7 @@ def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref,
     right_rect_gray = cv.cvtColor( right_rect_full, cv.COLOR_BGR2GRAY )
     al_l = np.linalg.norm( np.diff( pts_l, axis = 0 ), axis = 1 ).sum()
     al_r = np.linalg.norm( np.diff( pts_r, axis = 0 ), axis = 1 ).sum()
-    if al_l >= al_r or True: # force left to be static (most photographically stable)
+    if al_l >= al_r or True:  # force left to be static (most photographically stable)
         pts_l_match, pts_r_match = stereomatch_normxcorr( pts_l, pts_r,
                                                           left_rect_gray, right_rect_gray,
                                                           winsize = winsize, zoom = zoom,
@@ -1757,7 +1758,7 @@ def segment_needle_subtract( img, ref_img, threshold ):
     bin_img = cv.morphologyEx( thresh_img, cv.MORPH_OPEN, np.ones( ( 3, 3 ) ) )
     bin_img = cv.morphologyEx( bin_img, cv.MORPH_CLOSE, np.ones( ( 3, 3 ) ) )
     
-    return bin_img
+    return bin_img, hl_img
     
 # segment_needle_subtract
 
@@ -2398,8 +2399,8 @@ def main_insertion_sub( insertion_dirs, stereo_params, save_bool:bool = False,
             bors_r = []
             
             # load in the pre-determined ROIs
-            roi_l = [[80, 200], [-1, -275]] 
-            roi_r = [[70, 260], [-1, -235]]
+            roi_l = [[50, 125], [-1, -325]] 
+            roi_r = [[40, 185], [-1, -285]]
             
             # load the images
             left_file = ins_dist_dir + 'left.png'
@@ -2415,8 +2416,8 @@ def main_insertion_sub( insertion_dirs, stereo_params, save_bool:bool = False,
                                                                           bor_l = bors_l, bor_r = bors_r,
                                                                           roi_l = roi_l, roi_r = roi_r,
                                                                           alpha = 0.6, recalc_stereo = True,
-                                                                          zoom = 3, winsize = ( 41, 41 ),
-                                                                          sub_thresh = 50, proc_show = proc_show )
+                                                                          zoom = 3, winsize = ( 41, 21 ),
+                                                                          sub_thresh = 75, proc_show = proc_show )
             
             arclength = np.linalg.norm( np.diff( pts_3d, axis = 0 ), axis = 1 ).sum()
             print( f"Arclength of reconstruction: {arclength:.3f} mm" )
@@ -3014,8 +3015,8 @@ def main_needleval( file_nums, img_dir, stereo_params, save_dir = None,
 
 if __name__ == '__main__':
     # set-up
-    validation = True
-    insertion_expmt = False
+    validation = False
+    insertion_expmt = True
     proc_show = False
     res_show = False
     save_bool = True
@@ -3025,7 +3026,7 @@ if __name__ == '__main__':
     needle_dir = stereo_dir + "needle_examples/"  # needle insertion examples directory
     grid_dir = stereo_dir + "grid_only/"  # grid testqing directory
     valid_dir = stereo_dir + "stereo_validation_jig/"  # validation directory
-    insertion_dir = "../../data/needle_3CH_3AA/02-22-2021_Test-Image-Subtraction/"
+    insertion_dir = "../../data/needle_3CH_4AA_v2/Insertion_Experiment_04-12-21/"
     
     curvature_dir = glob.glob( valid_dir + 'k_*/' )  # validation curvature directories
     curvature_dir = sorted( curvature_dir )
