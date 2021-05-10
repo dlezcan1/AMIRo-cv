@@ -86,7 +86,7 @@ def blackout_image( bo_regions: list, image_size ):
 
 
 def blackout_regions( img, bo_regions: list ):
-    
+    img = img.copy()
     for tl, br in bo_regions:
         img = blackout( img, tl, br )
         
@@ -267,6 +267,73 @@ def contours( left_skel, right_skel ):
     return conts_l, conts_r
 
 # contours
+
+
+def fit_parabola_img( img, pts, window: int, ransac_num_samples: int = 15, ransac_num_trials:int = 2000 ):
+    ''' Function to fit a parabola to an image and return its minimum coordinate'''
+    assert( pts.shape[1] == 2 )  # 2 columns allowed only
+    
+    if img.ndim > 2:
+        img = cv.cvtColor( img, cv.COLOR_BGR2GRAY )
+        
+    # if
+        
+    X_min = []
+    Pol_ransac = []
+    for x, y in pts:
+        win_img = img[y, x - window // 2:x + window // 2]
+        X = np.arange( x - window // 2, x + window // 2 )
+        
+        # fit parabola ransac
+        pol_ransac = fit_parabola_ransac( X, win_img, ransac_num_samples, ransac_num_trials )
+        
+        # calculate minimum point
+        x_min = -pol_ransac[1] / ( 2 * pol_ransac[0] )
+        
+        # append to list
+        X_min.append( x_min )
+        Pol_ransac.append( pol_ransac )
+    
+    # for
+    
+    pts_min = np.vstack( ( X_min, pts[:, 1] ) ).T
+    
+    return pts_min, Pol_ransac
+                  
+# fit_parabola_img
+
+
+def fit_parabola_ransac( X, Y, num_samples:int, num_trials:int = 2000 ):
+    ''' Function to fit a 1D parabola using RANSAC based on steepness (coefficient on x**2)'''
+    # argument checking
+    assert( len( X ) == len( Y ) )
+    
+    # initializations
+    most_inliers = -1
+    steepness = -np.inf
+    pol = None
+    for i in range( num_trials ):
+        # grab random number of samples
+        choices = np.random.choice( len( X ), num_samples, replace = False )
+        
+        # grab the points
+        X_choice = X[choices]
+        Y_choice = Y[choices]
+        
+        # get the polynomial fit
+        pol_i = np.polyfit( X_choice, Y_choice, 2 )
+        steepness_i = pol_i[0]
+        
+        # update if steeper
+        if( steepness_i > steepness ) or ( pol is None ):
+            pol = pol_i
+            steepness = steepness_i
+        # if
+        
+    # for
+    
+    return pol
+# fit_parabola_ransac   
 
 
 def gauss_blur( left_img, right_img, ksize, sigma:tuple = ( 0, 0 ) ):
@@ -1149,6 +1216,8 @@ def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref,
     ''' This is a method to perform needle reconstruction on an image
         using a reference image prior to insertion for image subtraction
         
+        @param winsize (tuple): 2-tuple of (y,x) window size (top-bottom, left-right)
+        
     '''
     # prepare images
     imgs_ret = {}
@@ -1447,14 +1516,14 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
     al_r = np.linalg.norm( np.diff( pts_r, axis = 0 ), axis = 1 ).sum()
     if al_l >= al_r and False:
         pts_l_match, pts_r_match = stereomatch_normxcorr( pts_l, pts_r,
-                                                          left_rect_gray, right_rect_gray,
+                                                          left_rect_gray.copy(), right_rect_gray.copy(),
                                                           winsize = winsize, zoom = zoom,
                                                           score_thresh = 0.5 )  # left search right
     # if
     
     else:
         pts_r_match, pts_l_match = stereomatch_normxcorr( pts_r, pts_l,
-                                                          right_rect_gray, left_rect_gray,
+                                                          right_rect_gray.copy(), left_rect_gray.copy(),
                                                           winsize = winsize, zoom = zoom,
                                                           score_thresh = 0.5 )  # right search left
     # else
@@ -1982,6 +2051,8 @@ def stereomatch_normxcorr( left_conts, right_conts, img_left, img_right,
             roi_(left/right): the rectified left/right ROI images.
                                              
             col (int = 1): the column to begin matching by
+            
+            winsize: 2 tuple to match 
     
      '''
     # argument checking
@@ -2394,13 +2465,18 @@ def main_insertion_sub( insertion_dirs, stereo_params, save_bool:bool = False,
             
             # if
             
+#             elif ins_num != 9:
+#                 continue
+            
             # blackout-regions
-            bors_l = []
-            bors_r = []
+            bors_l = [[[75, 0], [160, -1]],
+                      [[-60, 0], [-1, -1]]]
+            bors_r = [[[70, 0], [140, -1]],
+                      [[-60, 0], [-1, -1]] ]
             
             # load in the pre-determined ROIs
-            roi_l = [[50, 125], [-1, -325]] 
-            roi_r = [[40, 185], [-1, -285]]
+            roi_l = [[50, 190], [-1, -340]]
+            roi_r = [[40, 220], [-1, -300]]
             
             # load the images
             left_file = ins_dist_dir + 'left.png'
@@ -2416,8 +2492,8 @@ def main_insertion_sub( insertion_dirs, stereo_params, save_bool:bool = False,
                                                                           bor_l = bors_l, bor_r = bors_r,
                                                                           roi_l = roi_l, roi_r = roi_r,
                                                                           alpha = 0.6, recalc_stereo = True,
-                                                                          zoom = 3, winsize = ( 41, 21 ),
-                                                                          sub_thresh = 75, proc_show = proc_show )
+                                                                          zoom = 2.5, winsize = ( 101, 101 ),
+                                                                          sub_thresh = 60, proc_show = proc_show )
             
             arclength = np.linalg.norm( np.diff( pts_3d, axis = 0 ), axis = 1 ).sum()
             print( f"Arclength of reconstruction: {arclength:.3f} mm" )
@@ -2558,8 +2634,8 @@ def main_insertionval( insertion_dirs, stereo_params, save_bool:bool = False,
                                                                                  bor_l = bors_l, bor_r = bors_r,
                                                                                  roi_l = roi_l, roi_r = roi_r,
                                                                                  alpha = 0.6, recalc_stereo = True,
-                                                                                 proc_show = proc_show, zoom = 3,
-                                                                                 winsize = ( 41, 41 ) )
+                                                                                 proc_show = proc_show, zoom = 2.5,
+                                                                                 winsize = ( 51, 51 ) )
         
         arclength = np.linalg.norm( np.diff( pts_3d, axis = 0 ), axis = 1 ).sum()
         print( f"Arclength of reconstruction: {arclength:.3f} mm" )
@@ -3026,7 +3102,7 @@ if __name__ == '__main__':
     needle_dir = stereo_dir + "needle_examples/"  # needle insertion examples directory
     grid_dir = stereo_dir + "grid_only/"  # grid testqing directory
     valid_dir = stereo_dir + "stereo_validation_jig/"  # validation directory
-    insertion_dir = "../../data/needle_3CH_4AA_v2/Insertion_Experiment_04-12-21/"
+    insertion_dir = "../../data/needle_3CH_4AA_v2/Insertion_Experiment_04-22-21/"
     
     curvature_dir = glob.glob( valid_dir + 'k_*/' )  # validation curvature directories
     curvature_dir = sorted( curvature_dir )
