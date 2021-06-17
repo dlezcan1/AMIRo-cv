@@ -32,7 +32,6 @@ from BSpline1D import BSpline1D
 
 # custom functions
 from needle_segmentation_functions import find_coordinate_image, find_hsv_image
-from builtins import FileNotFoundError
 
 # color HSV ranges
 COLOR_HSVRANGE_RED = ( ( 0, 50, 50 ), ( 10, 255, 255 ) )
@@ -255,6 +254,32 @@ def color_segmentation( left_img, right_img, color ):
     return left_mask, right_mask, left_color, right_color
     
 # color_segmentation
+
+
+def connected_component_filtering( bin_img, N_keep: int = 1 ):
+    ''' Keep the largest 'N_keep' connected components
+            
+        @param bin_img: binary image for connected component analysis
+        @param N_keep: the number of components to keep
+        
+        @return: segmented out connected components    
+    '''
+    
+    # run connected components (0 is bg)
+    num_labels, labels = cv.connectedComponents( bin_img )
+    
+    # determine number of instances per label
+    num_instances_labels = [np.count_nonzero( labels == lbl ) for lbl in range( num_labels )]
+    
+    # N largest label that is not the background
+    labels_sorted = np.argsort( num_instances_labels[1:] ) + 1 
+    labels_Nkeep = labels_sorted[:-N_keep - 1:-1]
+    
+    bin_img_cc = np.isin( labels, labels_Nkeep )
+    
+    return bin_img_cc
+    
+# connected_component_filtering
     
 
 def contours( left_skel, right_skel ):
@@ -1207,7 +1232,7 @@ def needle_jig_reconstruction_refined( img_left, img_right, stereo_params,
 # needle_jig_reconstruction_refined
 
 
-def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref,
+def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref, stereo_params,
                               bor_l: list = [], bor_r:list = [],
                               roi_l = (), roi_r = (),
                               alpha:float = 0.5, recalc_stereo:bool = True,
@@ -1229,10 +1254,16 @@ def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref,
     right_ref_gray = cv.cvtColor( right_ref, cv.COLOR_BGR2GRAY )
     
     # segment each image
-    left_seg, left_sub = segment_needle_subtract( left_gray, left_ref_gray, threshold = sub_thresh )
-    right_seg, right_sub = segment_needle_subtract( right_gray, right_ref_gray, threshold = sub_thresh )
-    imgs_ret['seg'] = imconcat( 255 * left_seg, 255 * right_seg, 125 )
+    left_seg_init, left_sub = segment_needle_subtract( left_gray, left_ref_gray, threshold = sub_thresh )
+    right_seg_init, right_sub = segment_needle_subtract( right_gray, right_ref_gray, threshold = sub_thresh )
+    imgs_ret['seg-init'] = imconcat( 255 * left_seg_init, 255 * right_seg_init, 125 )
     imgs_ret['sub'] = imconcat( left_sub, right_sub, 125 )
+    
+    # - perform connected component analysis
+    num_cc_keep = 2
+    left_seg = connected_component_filtering( left_seg_init, N_keep = num_cc_keep ).astype( np.uint8 )
+    right_seg = connected_component_filtering( right_seg_init, N_keep = num_cc_keep ).astype( np.uint8 )
+    imgs_ret['seg'] = imconcat( 255 * left_seg, 255 * right_seg, 125 )
     
     # - roi the images
     left_roi = roi( left_img, roi_l, full = True )
@@ -1280,8 +1311,8 @@ def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref,
     
     # - outlier options
     len_thresh = 5
-    bspl_k = 2
-    out_thresh = 1
+    bspl_k = 0
+    out_thresh = -1  # don't do outlier detection
     n_neigh = 20
     scale = ( 1, 1 )
    
@@ -1297,8 +1328,8 @@ def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref,
                                                   outlier_thresh = out_thresh,
                                                   num_neigbors = n_neigh, scale = scale )
     
-    left_rect_draw = cv.polylines( left_rect_full.copy(), [pts_l.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
-    right_rect_draw = cv.polylines( right_rect_full.copy(), [pts_r.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+    left_rect_draw = cv.polylines( left_rect_full.copy(), [pts_l.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 3 )
+    right_rect_draw = cv.polylines( right_rect_full.copy(), [pts_r.reshape( -1, 1, 2 ).astype( np.int32 )], False, ( 255, 0, 0 ), 3 )
     imgs_ret['contours'] = imconcat( left_rect_draw, right_rect_draw, [0, 0, 255] )
 
     # stereo matching
@@ -1306,7 +1337,7 @@ def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref,
     right_rect_gray = cv.cvtColor( right_rect_full, cv.COLOR_BGR2GRAY )
     al_l = np.linalg.norm( np.diff( pts_l, axis = 0 ), axis = 1 ).sum()
     al_r = np.linalg.norm( np.diff( pts_r, axis = 0 ), axis = 1 ).sum()
-    if al_l >= al_r or True:  # force left to be static (most photographically stable)
+    if al_l >= al_r:  # take the max arclengths
         pts_l_match, pts_r_match = stereomatch_normxcorr( pts_l, pts_r,
                                                           left_rect_gray, right_rect_gray,
                                                           winsize = winsize, zoom = zoom,
@@ -1325,7 +1356,7 @@ def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref,
     pts_r_match = pts_r_match[idx_l]
     
     # bspline fit the matching points
-    if bspl_k > 0:
+    if bspl_k > 0 or True:
         bspline_l_match = BSpline1D( pts_l_match[:, 1], pts_l_match[:, 0], k = 2 )
         bspline_r_match = BSpline1D( pts_r_match[:, 1], pts_r_match[:, 0], k = 2 )
         s = np.linspace( 0, 1, 200 )
@@ -1336,9 +1367,9 @@ def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref,
     
     # = add to images
     left_rect_match_draw = cv.polylines( left_rect_full.copy(),
-                                         [pts_l_match.reshape( -1, 1, 2 ).round().astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+                                         [pts_l_match.reshape( -1, 1, 2 ).round().astype( np.int32 )], False, ( 255, 0, 0 ), 3 )
     right_rect_match_draw = cv.polylines( right_rect_full.copy(),
-                                          [pts_r_match.reshape( -1, 1, 2 ).round().astype( np.int32 )], False, ( 255, 0, 0 ), 5 )
+                                          [pts_r_match.reshape( -1, 1, 2 ).round().astype( np.int32 )], False, ( 255, 0, 0 ), 3 )
     imgs_ret['contours-match'] = imconcat( left_rect_match_draw, right_rect_match_draw, [0, 0, 255] )
     
     # stereo 
@@ -1349,10 +1380,13 @@ def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref,
     # show processing
     figs_ret = {}
     if proc_show:
+        figs_ret['seg-init'] = plt.figure( figsize = ( 12, 8 ) )
+        plt.imshow( imgs_ret['seg-init'], cmap = 'gray' )
+        plt.title( 'Segmented needle (Initial)' )
         
         figs_ret['seg'] = plt.figure( figsize = ( 12, 8 ) )
         plt.imshow( imgs_ret['seg'], cmap = 'gray' )
-        plt.title( 'Segmented needle' )
+        plt.title( 'Segmented needle (Post CC Analysis)' )
         
         figs_ret['rect'] = plt.figure( figsize = ( 12, 8 ) )
         plt.imshow( imgs_ret['rect'][:,:,::-1] )
@@ -1363,7 +1397,7 @@ def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref,
         plt.title( 'Rectified Images: ROI' )
         
         figs_ret['rect-seg'] = plt.figure( figsize = ( 12, 8 ) )
-        plt.imshow( imgs_ret['seg-rect'], cmap = 'gray' )
+        plt.imshow( imgs_ret['rect-seg'], cmap = 'gray' )
         plt.title( 'Segmented rectified images' )
 
         figs_ret['skel'] = plt.figure( figsize = ( 12, 8 ) )
@@ -1398,6 +1432,7 @@ def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref,
         
         figs_ret['3d'] = plt.figure( figsize = ( 8, 8 ) )
         _, ax = plot3D_equal( pts_3d[:,:3], figs_ret['3d'], 1 )
+        ax.plot( pts_3d[-1, 0], pts_3d[-1, 1], pts_3d[-1, 2], 'g*' )
         plt.title( '3-D reconstruction' )
         
         plt.show()
@@ -1815,16 +1850,22 @@ def segment_needle_subtract( img, ref_img, threshold ):
     ''' This is a method to segment the needle by subtracting out the background of an image
         
         (Note: threshold of 55 seems to work OK)
+        
+        @param img: gray scale image for the current insertion
+        @param ref_img: gray scale image as the reference prior to insertion
+        @param threshold: the subtraction cutoff
+        
+        @return: segmented needle, the highlighted subtraction image
     
     '''
     diff_img = ref_img.astype( int ) - img.astype( int )  # needle is darker therefore, diff > 0 is what we want to highlight
     
     hl_img = diff_img * ( diff_img > 0 )  # highlight only positive changes
     
-    thresh_img = ( hl_img >= threshold ).astype( np.uint8 )
+    bin_img = ( hl_img >= threshold ).astype( np.uint8 )
     
     # morphological operations
-    bin_img = cv.morphologyEx( thresh_img, cv.MORPH_OPEN, np.ones( ( 3, 3 ) ) )
+    bin_img = cv.morphologyEx( bin_img, cv.MORPH_OPEN, np.ones( ( 3, 3 ) ) )
     bin_img = cv.morphologyEx( bin_img, cv.MORPH_CLOSE, np.ones( ( 3, 3 ) ) )
     
     return bin_img, hl_img
@@ -2052,7 +2093,7 @@ def stereomatch_normxcorr( left_conts, right_conts, img_left, img_right,
                                              
             col (int = 1): the column to begin matching by
             
-            winsize: 2 tuple to match 
+            winsize: 2 tuple to match (cols, rows) OR (x, y)
     
      '''
     # argument checking
@@ -2465,13 +2506,18 @@ def main_insertion_sub( insertion_dirs, stereo_params, save_bool:bool = False,
             
             # if
             
-#             elif ins_num != 9:
-#                 continue
+            # elif ins_dist != 105:
+            #     continue
+            
+            # elif ins_num < 8:
+            #     continue
             
             # blackout-regions
-            bors_l = [[[75, 0], [160, -1]],
-                      [[-60, 0], [-1, -1]]]
-            bors_r = [[[70, 0], [140, -1]],
+            bors_l = [
+                      # [[80, 120], [140, -1]],  # staples
+                      [[-60, 0], [-1, -1]] ]
+            bors_r = [
+                      # [[70, 140], [120, -1]],  # staples
                       [[-60, 0], [-1, -1]] ]
             
             # load in the pre-determined ROIs
@@ -2489,10 +2535,12 @@ def main_insertion_sub( insertion_dirs, stereo_params, save_bool:bool = False,
             t0 = time.time()
             pts_3d, *_, proc_images, figures = needle_reconstruction_ref( left_img, left_ref,
                                                                           right_img, right_ref,
+                                                                          stereo_params,
                                                                           bor_l = bors_l, bor_r = bors_r,
                                                                           roi_l = roi_l, roi_r = roi_r,
                                                                           alpha = 0.6, recalc_stereo = True,
-                                                                          zoom = 2.5, winsize = ( 101, 101 ),
+                                                                          # zoom = 1.0, winsize = ( 201, 51 ),  # testing
+                                                                          zoom = 2.5, winsize = ( 201, 51 ), # production
                                                                           sub_thresh = 60, proc_show = proc_show )
             
             arclength = np.linalg.norm( np.diff( pts_3d, axis = 0 ), axis = 1 ).sum()
@@ -3102,7 +3150,7 @@ if __name__ == '__main__':
     needle_dir = stereo_dir + "needle_examples/"  # needle insertion examples directory
     grid_dir = stereo_dir + "grid_only/"  # grid testqing directory
     valid_dir = stereo_dir + "stereo_validation_jig/"  # validation directory
-    insertion_dir = "../../data/needle_3CH_4AA_v2/Insertion_Experiment_04-22-21/"
+    insertion_dir = "../../data/needle_3CH_4AA_v2/Insertion_Experiment_04-12-21/"
     
     curvature_dir = glob.glob( valid_dir + 'k_*/' )  # validation curvature directories
     curvature_dir = sorted( curvature_dir )
