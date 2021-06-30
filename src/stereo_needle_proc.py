@@ -1259,10 +1259,13 @@ def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref, stereo_
     imgs_ret['seg-init'] = imconcat( 255 * left_seg_init, 255 * right_seg_init, 125 )
     imgs_ret['sub'] = imconcat( left_sub, right_sub, 125 )
     
+    left_seg_init_boroi = roi(blackout_regions(left_seg_init, bor_l), roi_l, full=True)
+    right_seg_init_boroi = roi(blackout_regions(right_seg_init, bor_r), roi_r, full=True)
+    
     # - perform connected component analysis
-    num_cc_keep = 2
-    left_seg = connected_component_filtering( left_seg_init, N_keep = num_cc_keep ).astype( np.uint8 )
-    right_seg = connected_component_filtering( right_seg_init, N_keep = num_cc_keep ).astype( np.uint8 )
+    num_cc_keep = 1
+    left_seg = connected_component_filtering( left_seg_init_boroi, N_keep = num_cc_keep ).astype( np.uint8 )
+    right_seg = connected_component_filtering( right_seg_init_boroi, N_keep = num_cc_keep ).astype( np.uint8 )
     imgs_ret['seg'] = imconcat( 255 * left_seg, 255 * right_seg, 125 )
     
     # - roi the images
@@ -2521,8 +2524,8 @@ def main_insertion_sub( insertion_dirs, stereo_params, save_bool:bool = False,
                       [[-60, 0], [-1, -1]] ]
             
             # load in the pre-determined ROIs
-            roi_l = [[50, 190], [-1, -340]]
-            roi_r = [[40, 220], [-1, -300]]
+            roi_l = [[50, 190], [-1, -375]]
+            roi_r = [[40, 220], [-1, -325]]
             
             # load the images
             left_file = ins_dist_dir + 'left.png'
@@ -3150,7 +3153,7 @@ if __name__ == '__main__':
     needle_dir = stereo_dir + "needle_examples/"  # needle insertion examples directory
     grid_dir = stereo_dir + "grid_only/"  # grid testqing directory
     valid_dir = stereo_dir + "stereo_validation_jig/"  # validation directory
-    insertion_dir = "../../data/needle_3CH_4AA_v2/Insertion_Experiment_04-12-21/"
+    insertion_dir = "../../data/needle_3CH_4AA_v2/Insertion_Experiment_04-22-21/"
     
     curvature_dir = glob.glob( valid_dir + 'k_*/' )  # validation curvature directories
     curvature_dir = sorted( curvature_dir )
