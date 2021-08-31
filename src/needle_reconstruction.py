@@ -8,55 +8,51 @@ This is a library/script to perform stereo needle reconstruciton and process dat
 
 """
 import argparse
-import re
-
-import stereo_needle_proc as stereo_needle
-
-import numpy as np
-import cv2 as cv
-from abc import ABC, abstractmethod
-
-from collections import namedtuple, Collection
-import os
 import glob
+import os
+import re
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import Union, List
 
-StereoPair = namedtuple( 'StereoPair', [ 'left', 'right' ] )
+import cv2 as cv
+import numpy as np
+
+# import stereo_needle_proc as stereo_needle
+from stereo_needle_proc import load_stereoparams_matlab, needle_reconstruction_ref
 
 
+@dataclass
+class ImageROI:
+    image: np.ndarray
+    roi: List[ int ] = field( default_factory=list )
+    blackout: List[ int ] = field( default_factory=list )
+
+
+# dataclass: ImageROI
+
+@dataclass
+class StereoPair:
+    left: Union[ np.ndarray, list ] = None
+    right: Union[ np.ndarray, list ] = None
+
+
+# dataclass: StereoPair
+
+@dataclass
 class StereoImagePair:
-    def __init__( self, left, right, roi_l=None, roi_r=None, bor_l=None, bor_r=None ):
-        self.images = StereoPair( left, right )
-
-        # region of interests
-        if roi_l is None:
-            roi_l = [ ]
-
-        if roi_r is None:
-            roi_r = [ ]
-
-        self.roi = StereoPair( roi_l, roi_r )
-
-        # blackout regions
-        if bor_l is None:
-            bor_l = [ ]
-
-        if bor_r is None:
-            bor_r = [ ]
-
-        self.blackout = StereoPair( bor_l, bor_r )
-
-    # __init__
+    left: ImageROI
+    right: ImageROI
 
 
-# class: StereoImagePair
+# dataclass: StereoImagePair
 
-
-class StereoRefInsertionExperiment:  # TODO: Insertion experiment for stereo reconstructions (reference)
+class StereoRefInsertionExperiment:
     directory_pattern = r".*[/,\\]Insertion([0-9]+)[/,\\]([0-9]+).*"  # data directory pattern
 
     def __init__( self, stereo_param_file: str, data_dir: str, insertion_depths: list,
                   roi: tuple = None, blackout: tuple = None ):
-        self.stereo_params = stereo_needle.load_stereoparams_matlab( stereo_param_file )
+        self.stereo_params = load_stereoparams_matlab( stereo_param_file )
         self.data_directory = os.path.normpath( data_dir )
         self.insertion_depths = [ depth for depth in insertion_depths if
                                   depth > 0 ] + [ 0 ]  # make sure non-negative insertion depth
@@ -116,9 +112,9 @@ class StereoRefInsertionExperiment:  # TODO: Insertion experiment for stereo rec
 
                 # if
 
-                if os.path.isfile( os.path.join( d, 'left-right_3d-pts.txt' ) ):
+                if os.path.isfile( os.path.join( d, 'left-right_3d-pts.csv' ) ):
                     # load the processed data
-                    pts_3d = np.loadtxt( os.path.join( d, 'left-right_3d-pts.txt' ), delimiter=',' )
+                    pts_3d = np.loadtxt( os.path.join( d, 'left-right_3d-pts.csv' ), delimiter=',' )
                     processed_dataset.append( (d, insertion_hole, insertion_depth, pts_3d) )  # processed_dataset
 
                 # if
@@ -162,7 +158,7 @@ class StereoRefInsertionExperiment:  # TODO: Insertion experiment for stereo rec
                                 self.processed_data ) ) ).flatten()
 
                 # check if data is already processed
-                if len( idx ) >= 0 and not overwrite:
+                if len( idx ) > 0 and not overwrite:
                     continue
 
                 # if
@@ -188,7 +184,7 @@ class StereoRefInsertionExperiment:  # TODO: Insertion experiment for stereo rec
 
                 # save the data (if you would like to save it)
                 if save:
-                    self._needle_reconstructor.save_3dpoints()
+                    self._needle_reconstructor.save_3dpoints( directory=d )
                     self._needle_reconstructor.save_processed_images( directory=d )
 
                 # if
@@ -201,7 +197,7 @@ class StereoRefInsertionExperiment:  # TODO: Insertion experiment for stereo rec
 # class: StereoRefInsertionExperiment
 
 
-class StereoNeedleReconstruction( ABC ):  # TODO: stereo needle reconstruction abstract class
+class StereoNeedleReconstruction( ABC ):
     """ Basic class for stereo needle reconstruction"""
     save_fbase = 'left-right_{:s}'
 
@@ -250,7 +246,7 @@ class StereoNeedleReconstruction( ABC ):  # TODO: stereo needle reconstruction a
 
     # reconstruct_needle
 
-    def save_3dpoints( self, outfile: str = None ):
+    def save_3dpoints( self, outfile: str = None, directory: str = '' ):
         """ Save the 3D reconstruction to a file """
 
         if self.needle_shape is not None:
@@ -258,6 +254,8 @@ class StereoNeedleReconstruction( ABC ):  # TODO: stereo needle reconstruction a
                 outfile = self.save_fbase.format( '3d-pts' ) + '.csv'
 
             # if
+
+            outfile = os.path.join( directory, outfile )
 
             np.savetxt( outfile, self.needle_shape, delimiter=',' )
             print( "Saved reconstructed shape:", outfile )
@@ -391,13 +389,13 @@ class StereoNeedleRefReconstruction( StereoNeedleReconstruction ):
 
         # perform stereo reconstruction
         pts_3d, pts_l, pts_r, bspline_l, bspline_r, imgs, figs = \
-            stereo_needle.needle_reconstruction_ref( self.image.left, self.reference.left,
-                                                     self.image.right, self.reference.right,
-                                                     stereo_params=self.stereo_params, recalc_stereo=True,
-                                                     bor_l=self.blackout.left, bor_r=self.blackout.right,
-                                                     roi_l=self.roi.left, roi_r=self.roi.right,
-                                                     alpha=alpha, winsize=window_size, zoom=zoom,
-                                                     sub_thresh=sub_thresh, proc_show=proc_show )
+            needle_reconstruction_ref( self.image.left, self.reference.left,
+                                       self.image.right, self.reference.right,
+                                       stereo_params=self.stereo_params, recalc_stereo=True,
+                                       bor_l=self.blackout.left, bor_r=self.blackout.right,
+                                       roi_l=self.roi.left, roi_r=self.roi.right,
+                                       alpha=alpha, winsize=window_size, zoom=zoom,
+                                       sub_thresh=sub_thresh, proc_show=proc_show )
         # set the current fields
         self.needle_shape = pts_3d[ :, 0:3 ]  # remove 4-th axis
 
@@ -434,15 +432,19 @@ def __get_parser() -> argparse.ArgumentParser:
     parser.add_argument( '--force-overwrite', action='store_true', help='Overwrite previously processed data.' )
 
     # image region of interestes
-    parser.add_argument( '--left-roi', nargs=4, default=[ ], help='The left image ROI to use' )
-    parser.add_argument( '--right-roi', nargs=4, default=[ ], help='The right image ROI' )
+    parser.add_argument( '--left-roi', nargs=4, type=int, default=[ ], help='The left image ROI to use',
+                         metavar=('TOP_Y', 'TOP_X', 'BOTTOM_Y', 'BOTTOM_X') )
+    parser.add_argument( '--right-roi', nargs=4, type=int, default=[ ], help='The right image ROI to use',
+                         metavar=('TOP_Y', 'TOP_X', 'BOTTOM_Y', 'BOTTOM_X') )
 
-    parser.add_argument( '--left-blackout', nargs='=', default=[ ], help='The blackout regions for the left image' )
-    parser.add_argument( '--right-blackout', nargs='=', default=[ ], help='The blackout regions for the right image' )
+    parser.add_argument( '--left-blackout', nargs='+', type=int, default=[ ],
+                         help='The blackout regions for the left image' )
+    parser.add_argument( '--right-blackout', nargs='+', type=int, default=[ ],
+                         help='The blackout regions for the right image' )
 
     # reconstruction parameters
     parser.add_argument( '--zoom', type=float, default=1.0, help="The zoom for stereo template matching" )
-    parser.add_argument( '--window-size', type=int, nargs=2, default=(201, 51),
+    parser.add_argument( '--window-size', type=int, nargs=2, default=(201, 51), metavar=('WIDTH', 'HEIGHT'),
                          help='The window size for stereo template matching' )
     parser.add_argument( '--alpha', type=float, default=0.6, help='The alpha parameter for stereo rectification.' )
     parser.add_argument( '--subtract-thresh', type=float, default=60,
@@ -509,7 +511,7 @@ def main( args=None ):
     # else
 
     # instantiate the Insertion Experiment data processor
-    processor = StereoRefInsertionExperiment( pargs.stereoParamFile, pargs.dataDiretory,
+    processor = StereoRefInsertionExperiment( pargs.stereoParamFile, pargs.dataDirectory,
                                               pargs.insertion_depths, roi=(left_roi, right_roi),
                                               blackout=(left_blackout, right_blackout) )
 
@@ -520,6 +522,8 @@ def main( args=None ):
                       'sub_thresh' : pargs.subtract_thresh,
                       'proc_show'  : pargs.show_processed }
     processor.process_dataset( processor.dataset, save=pargs.save, overwrite=pargs.force_overwrite, **stereo_kwargs )
+
+    print( "Program completed." )
 
 
 # main
