@@ -8,33 +8,31 @@ This is a file for building image processing to segment the needle in stereo ima
 
 """
 
-import re, glob, warnings, time, os
-import numpy as np
-import cv2 as cv
-import matplotlib.pyplot as plt
-import scipy.io as sio
-from scipy.signal import savgol_filter
-from scipy.ndimage import convolve1d
-from scipy.optimize import minimize, Bounds
-
+import glob
+import os
+import re
+import time
+import warnings
 # helper
 from typing import Union
 
+import cv2 as cv
+import matplotlib.pyplot as plt
+import numpy as np
+import scipy.io as sio
+# NURBS
+from geomdl import fitting
+from geomdl.visualization import VisMPL
 # plotting
 from matplotlib import colors as pltcolors
-from mpl_toolkits.mplot3d import Axes3D  # 3D plotting @UnusedImport
-
+from scipy.signal import savgol_filter
 from skimage.morphology import skeletonize
 from sklearn.cluster import MeanShift, estimate_bandwidth
 from sklearn.neighbors import LocalOutlierFactor
 
-# NURBS
-from geomdl import fitting
-from geomdl.visualization import VisMPL
 from BSpline1D import BSpline1D
-
 # custom functions
-from needle_segmentation_functions import find_coordinate_image, find_hsv_image
+from needle_segmentation_functions import find_hsv_image
 
 # color HSV ranges
 COLOR_HSVRANGE_RED = ((0, 50, 50), (10, 255, 255))
@@ -160,7 +158,7 @@ def canny( left_img, right_img, lo_thresh=150, hi_thresh=200 ):
 
 
 def centerline_from_contours( contours, len_thresh: int = -1, bspline_k: int = -1,
-                              outlier_thresh: float = -1, num_neigbors: int = -1,
+                              outlier_thresh: float = -1, num_neighbors: int = -1,
                               scale: tuple = (1, 1) ):
     """ This is to determine the centerline points from the contours using outlier detection
         and bspline smoothing
@@ -192,8 +190,8 @@ def centerline_from_contours( contours, len_thresh: int = -1, bspline_k: int = -
     pts = np.unique( np.vstack( contours_filt ).squeeze(), axis=0 ) * np.array( scale ).reshape( 1, 2 )
 
     # outlier detection
-    if (outlier_thresh >= 0) and (num_neigbors > 0):
-        clf = LocalOutlierFactor( n_neighbors=num_neigbors, contamination='auto' )
+    if (outlier_thresh >= 0) and (num_neighbors > 0):
+        clf = LocalOutlierFactor( n_neighbors=num_neighbors, contamination='auto' )
         clf.fit_predict( pts )
         inliers = np.abs( -1 - clf.negative_outlier_factor_ ) < outlier_thresh
 
@@ -231,19 +229,19 @@ def color_segmentation( left_img, right_img, color ):
 
     elif color.lower() in [ 'yellow', 'y' ]:
         lb = COLOR_HSVRANGE_YELLOW[ 0 ]
-        Ub = COLOR_HSVRANGE_YELLOW[ 1 ]
+        ub = COLOR_HSVRANGE_YELLOW[ 1 ]
 
     # elif
 
     elif color.lower() in [ 'green', 'g' ]:
         lb = COLOR_HSVRANGE_GREEN[ 0 ]
-        Ub = COLOR_HSVRANGE_GREEN[ 1 ]
+        ub = COLOR_HSVRANGE_GREEN[ 1 ]
 
     # elif
 
     elif color.lower() in [ 'blue', 'b' ]:
         lb = COLOR_HSVRANGE_BLUE[ 0 ]
-        Ub = COLOR_HSVRANGE_BLUE[ 1 ]
+        ub = COLOR_HSVRANGE_BLUE[ 1 ]
 
     # elif
 
@@ -759,17 +757,12 @@ def imconcat( left_im, right_im, pad_val: Union[ int, list ] = 0, pad_size: int 
     """ wrapper for concatenating images"""
 
     if left_im.ndim == 2:
-        pad_left_im = np.pad( left_im, ((0, 0), (0, pad_size)), constant_values=pad_val )
+        padding = np.array( pad_val ) * np.ones( (left_im.shape[ 0 ], pad_size), dtype=left_im.dtype )
 
     # if
 
     elif left_im.ndim == 3:
-        if np.ndim( pad_val ) > 0:  # color img
-            pad_val = ((pad_val, pad_val), (pad_val, pad_val), (0, 0))
-
-        # if
-
-        pad_left_im = np.pad( left_im, ((0, 0), (0, pad_size), (0, 0)), constant_values=pad_val )
+        padding = np.array( pad_val ) * np.ones( (left_im.shape[ 0 ], pad_size, left_im.shape[ 2 ]), dtype=left_im.dtype )
 
     # elif
 
@@ -778,7 +771,7 @@ def imconcat( left_im, right_im, pad_val: Union[ int, list ] = 0, pad_size: int 
 
     # else
 
-    return np.concatenate( (pad_left_im, right_im), axis=1 )
+    return np.concatenate( (left_im, padding, right_im), axis=1 )
 
 
 # imconcat
@@ -1053,7 +1046,7 @@ def needle_jig_reconstruction( img_left, img_right, stereo_params,
     # stereo rectify the images
     left_rect, right_rect, _, map_l, map_r = stereo_rectify( left_roibo, right_roibo, stereo_params,
                                                              interp_method=cv.INTER_LINEAR, alpha=alpha,
-                                                             force_recalc=recalc_stereo )
+                                                             recalc_stereo=recalc_stereo )
     ret_images[ 'rect' ] = imconcat( left_rect, right_rect, [ 0, 0, 255 ] )
 
     # # map the rois
@@ -1090,13 +1083,13 @@ def needle_jig_reconstruction( img_left, img_right, stereo_params,
                                                  len_thresh=len_thresh,
                                                  bspline_k=bspl_k,
                                                  outlier_thresh=out_thresh,
-                                                 num_neigbors=n_neigh )
+                                                 num_neighbors=n_neigh )
 
     pts_r, bspline_r = centerline_from_contours( conts_r,
                                                  len_thresh=len_thresh,
                                                  bspline_k=bspl_k,
                                                  outlier_thresh=out_thresh,
-                                                 num_neigbors=n_neigh )
+                                                 num_neighbors=n_neigh )
 
     left_rect_draw = cv.polylines( left_rect.copy(), [ pts_l.reshape( -1, 1, 2 ).astype( np.int32 ) ], False,
                                    (255, 0, 0), 5 )
@@ -1213,13 +1206,13 @@ def needle_jig_reconstruction_refined( img_left, img_right, stereo_params,
                                                  len_thresh=len_thresh,
                                                  bspline_k=bspl_k,
                                                  outlier_thresh=out_thresh,
-                                                 num_neigbors=n_neigh )
+                                                 num_neighbors=n_neigh )
 
     pts_r, bspline_r = centerline_from_contours( conts_r,
                                                  len_thresh=len_thresh,
                                                  bspline_k=bspl_k,
                                                  outlier_thresh=out_thresh,
-                                                 num_neigbors=n_neigh )
+                                                 num_neighbors=n_neigh )
 
     left_rect_draw = cv.polylines( left_rect.copy(), [ pts_l.reshape( -1, 1, 2 ).astype( np.int32 ) ], False,
                                    (255, 0, 0), 5 )
@@ -1327,11 +1320,13 @@ def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref, stereo_
     # segment each image
     left_seg_init, left_sub = segment_needle_subtract( left_gray, left_ref_gray, threshold=sub_thresh )
     right_seg_init, right_sub = segment_needle_subtract( right_gray, right_ref_gray, threshold=sub_thresh )
-    imgs_ret[ 'seg-init' ] = imconcat( 255 * left_seg_init, 255 * right_seg_init, 125 )
     imgs_ret[ 'sub' ] = imconcat( left_sub, right_sub, 125 )
+    imgs_ret[ 'seg-init' ] = imconcat( 255 * left_seg_init, 255 * right_seg_init, 125 )
 
     left_seg_init_boroi = roi( blackout_regions( left_seg_init, bor_l ), roi_l, full=True )
     right_seg_init_boroi = roi( blackout_regions( right_seg_init, bor_r ), roi_r, full=True )
+
+    left_seg_init_boroi, right_seg_init_boroi = bin_close( left_seg_init_boroi, right_seg_init_boroi, ksize=(9, 5) )
 
     # - perform connected component analysis
     num_cc_keep = 1
@@ -1394,13 +1389,13 @@ def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref, stereo_
                                                  len_thresh=len_thresh,
                                                  bspline_k=bspl_k,
                                                  outlier_thresh=out_thresh,
-                                                 num_neigbors=n_neigh, scale=scale )
+                                                 num_neighbors=n_neigh, scale=scale )
 
     pts_r, bspline_r = centerline_from_contours( conts_r,
                                                  len_thresh=len_thresh,
                                                  bspline_k=bspl_k,
                                                  outlier_thresh=out_thresh,
-                                                 num_neigbors=n_neigh, scale=scale )
+                                                 num_neighbors=n_neigh, scale=scale )
 
     left_rect_draw = cv.polylines( left_rect_full.copy(), [ pts_l.reshape( -1, 1, 2 ).astype( np.int32 ) ], False,
                                    (255, 0, 0), 3 )
@@ -1458,6 +1453,10 @@ def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref, stereo_
     # show processing
     figs_ret = { }
     if proc_show:
+        figs_ret[ 'sub' ] = plt.figure( figsize=(12, 8) )
+        plt.imshow( imgs_ret[ 'sub' ], cmap='gray' )
+        plt.title( "Image Subtraction" )
+
         figs_ret[ 'seg-init' ] = plt.figure( figsize=(12, 8) )
         plt.imshow( imgs_ret[ 'seg-init' ], cmap='gray' )
         plt.title( 'Segmented needle (Initial)' )
@@ -1615,13 +1614,13 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
                                                  len_thresh=len_thresh,
                                                  bspline_k=bspl_k,
                                                  outlier_thresh=out_thresh,
-                                                 num_neigbors=n_neigh, scale=scale )
+                                                 num_neighbors=n_neigh, scale=scale )
 
     pts_r, bspline_r = centerline_from_contours( conts_r,
                                                  len_thresh=len_thresh,
                                                  bspline_k=bspl_k,
                                                  outlier_thresh=out_thresh,
-                                                 num_neigbors=n_neigh, scale=scale )
+                                                 num_neighbors=n_neigh, scale=scale )
 
     left_rect_draw = cv.polylines( left_rect_full.copy(), [ pts_l.reshape( -1, 1, 2 ).astype( np.int32 ) ], False,
                                    (255, 0, 0), 5 )
@@ -1870,10 +1869,10 @@ def plot3D_equal( pts, fig=None, axis: int = 0 ):
 
     # if
 
-    ax = fig.gca( projection='3d' )
+    ax = fig.add_subplot( projection='3d' )
     X, Y, Z = pts[ :3 ]
     ax.plot( X, Y, Z )
-    max_range = np.array( [ X.max() - X.min(), Y.max() - Y.min(), Z.max() - Z.min() ] ).max()
+    max_range = np.max( [ X.max() - X.min(), Y.max() - Y.min(), Z.max() - Z.min() ] )
     Xb = 0.5 * max_range * np.mgrid[ -1:2:2, -1:2:2, -1:2:2 ][ 0 ].flatten() + 0.5 * (X.max() + X.min())
     Yb = 0.5 * max_range * np.mgrid[ -1:2:2, -1:2:2, -1:2:2 ][ 1 ].flatten() + 0.5 * (Y.max() + Y.min())
     Zb = 0.5 * max_range * np.mgrid[ -1:2:2, -1:2:2, -1:2:2 ][ 2 ].flatten() + 0.5 * (Z.max() + Z.min())
@@ -2067,8 +2066,7 @@ def stereomatch_needle( left_conts, right_conts, method="tip-count", col: int = 
             (left/right)_conts: a nx2 array of pixel coordinates
                                 for the contours in the (left/right) image
 
-            start_location (Default: "tip"): a string of where to start counting.
-                                             tip is only implemented.
+            method (Default: "tip"): method to use for stereomatching.
 
             col (int = 1): the column to begin matching by
 
@@ -2197,7 +2195,7 @@ def stereomatch_normxcorr( left_conts, right_conts, img_left, img_right,
 
             col (int = 1): the column to begin matching by
 
-            winsize: 2 tuple to match (cols, rows) OR (x, y)
+            winsize: 2 tuple to match (rows, cols) OR (y, x)
 
      """
     # argument checking
@@ -2460,9 +2458,9 @@ def undistort_points( pts_l, pts_r, stereo_params: dict ):
 
 def main():
     # set-up
-    validation = False # DO NOT CHANGE, KEEP False
-    insertion_expmt = True # DO NOT CHANGE, KEEP True
-    proc_show = False # Can change, True if you would like to see the processing of the images
+    validation = False  # DO NOT CHANGE, KEEP False
+    insertion_expmt = True  # DO NOT CHANGE, KEEP True
+    proc_show = False  # Can change, True if you would like to see the processing of the images
     res_show = False  # Can change, True if you would like to see the results of the needle reconstruction
     save_bool = True  # Can change, True if you would like to save the processed data
 
@@ -2471,7 +2469,7 @@ def main():
     # needle_dir = stereo_dir + "needle_examples/"  # needle insertion examples directory DO NOT USE
     # grid_dir = stereo_dir + "grid_only/"  # grid testqing directory DO NOT USE
     valid_dir = stereo_dir + "stereo_validation_jig/"  # validation directory DO NOT USE
-    insertion_dir = "../../data/3CH-4AA-0004/08-30-2021_Insertion-Expmt-1/" # CHANGE, CHANGE HERE FOR DIFFERENT DATASET
+    insertion_dir = "../../data/3CH-4AA-0004/08-30-2021_Insertion-Expmt-1/"  # CHANGE, CHANGE HERE FOR DIFFERENT DATASET
 
     curvature_dir = glob.glob( os.path.join( valid_dir, 'k_*/' ) )  # validation curvature directories
     curvature_dir = sorted( curvature_dir )

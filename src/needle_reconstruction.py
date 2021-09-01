@@ -50,10 +50,11 @@ class StereoImagePair:
 class StereoRefInsertionExperiment:
     directory_pattern = r".*[/,\\]Insertion([0-9]+)[/,\\]([0-9]+).*"  # data directory pattern
 
-    def __init__( self, stereo_param_file: str, data_dir: str, insertion_depths: list,
+    def __init__( self, stereo_param_file: str, data_dir: str, insertion_depths: list, insertion_numbers: list,
                   roi: tuple = None, blackout: tuple = None ):
         self.stereo_params = load_stereoparams_matlab( stereo_param_file )
         self.data_directory = os.path.normpath( data_dir )
+        self.insertion_numbers = insertion_numbers
         self.insertion_depths = [ depth for depth in insertion_depths if
                                   depth > 0 ] + [ 0 ]  # make sure non-negative insertion depth
 
@@ -74,17 +75,19 @@ class StereoRefInsertionExperiment:
         # if
 
         # configure the dataset
-        self.dataset, self.processed_data = self.configure_dataset( self.data_directory, self.insertion_depths )
+        self.dataset, self.processed_data = self.configure_dataset( self.data_directory, self.insertion_depths,
+                                                                    self.insertion_numbers )
 
     # __init__
 
     @classmethod
-    def configure_dataset( cls, directory: str, insertion_depths: list ) -> (list, list):
+    def configure_dataset( cls, directory: str, insertion_depths: list, insertion_numbers: list ) -> (list, list):
         """
             Configure a dataset based on the directory:
 
             :param directory: string of the main data directory
             :param insertion_depths: a list of insertion depths that are to be processed.
+            :param insertion_numbers: a list of insertion numbers to process
 
         """
         dataset = [ ]
@@ -102,20 +105,20 @@ class StereoRefInsertionExperiment:
             res = re.search( cls.directory_pattern, d )
 
             if res is not None:
-                insertion_hole, insertion_depth = res.groups()
-                insertion_hole = int( insertion_hole )
+                insertion_num, insertion_depth = res.groups()
+                insertion_num = int( insertion_num )
                 insertion_depth = float( insertion_depth )
 
                 # only include insertion depths that we want to process
-                if insertion_depth in insertion_depths:
-                    dataset.append( (d, insertion_hole, insertion_depth) )
+                if insertion_depth in insertion_depths and insertion_num in insertion_numbers:
+                    dataset.append( (d, insertion_num, insertion_depth) )
 
                 # if
 
                 if os.path.isfile( os.path.join( d, 'left-right_3d-pts.csv' ) ):
                     # load the processed data
                     pts_3d = np.loadtxt( os.path.join( d, 'left-right_3d-pts.csv' ), delimiter=',' )
-                    processed_dataset.append( (d, insertion_hole, insertion_depth, pts_3d) )  # processed_dataset
+                    processed_dataset.append( (d, insertion_num, insertion_depth, pts_3d) )  # processed_dataset
 
                 # if
 
@@ -158,10 +161,12 @@ class StereoRefInsertionExperiment:
                                 self.processed_data ) ) ).flatten()
 
                 # check if data is already processed
-                if len( idx ) > 0 and not overwrite:
+                if len( idx ) > 0 and not overwrite and save:
                     continue
 
                 # if
+
+                print(f"Processing dataset: {d}")
 
                 # load the next image pair
                 left_file = os.path.join( d, 'left.png' )
@@ -342,50 +347,11 @@ class StereoNeedleRefReconstruction( StereoNeedleReconstruction ):
 
         """
         # keyword argument parsing
-        if 'window_size' in kwargs.keys():
-            window_size = kwargs[ 'window_size' ]
-
-        # if
-        else:
-            window_size = (201, 51)
-
-        # else
-
-        if 'zoom' in kwargs.keys():
-            zoom = kwargs[ 'zoom' ]
-
-        # if
-        else:
-            zoom = 1.0
-
-        # else
-
-        if 'alpha' in kwargs.keys():
-            alpha = kwargs[ 'alpha' ]
-
-        # if
-        else:
-            alpha = 0.6
-
-        # else
-
-        if 'sub_thresh' in kwargs.keys():
-            sub_thresh = kwargs[ 'sub_thresh' ]
-
-        # if
-        else:
-            sub_thresh = 60
-
-        # else
-
-        if 'proc_show' in kwargs.keys():
-            proc_show = kwargs[ 'proc_show' ]
-
-        # if
-        else:
-            proc_show = False
-
-        # else
+        window_size = kwargs.get('window_size', (201, 51))
+        zoom = kwargs.get('zoom', 1.0)
+        alpha = kwargs.get('alpha', 0.6)
+        sub_thresh = kwargs.get('sub_thresh', 60)
+        proc_show = kwargs.get('proc_show', False)
 
         # perform stereo reconstruction
         pts_3d, pts_l, pts_r, bspline_l, bspline_r, imgs, figs = \
@@ -425,6 +391,7 @@ def __get_parser() -> argparse.ArgumentParser:
 
     # data directory 
     parser.add_argument( 'dataDirectory', type=str, help='Needle Insertion Experiment directory' )
+    parser.add_argument( '--insertion-numbers', type=int, nargs='+', default=list( range( 1, 10 ) ) )
     parser.add_argument( '--insertion-depths', type=float, nargs='+', default=[ 0, 105, 110, 115, 120 ],
                          help="The insertion depths of the needle to be parsed." )
     parser.add_argument( '--show-processed', action='store_true', help='Show the processed data' )
@@ -511,9 +478,10 @@ def main( args=None ):
     # else
 
     # instantiate the Insertion Experiment data processor
-    processor = StereoRefInsertionExperiment( pargs.stereoParamFile, pargs.dataDirectory,
-                                              pargs.insertion_depths, roi=(left_roi, right_roi),
-                                              blackout=(left_blackout, right_blackout) )
+    image_processor = StereoRefInsertionExperiment( pargs.stereoParamFile, pargs.dataDirectory,
+                                                    pargs.insertion_depths, pargs.insertion_numbers,
+                                                    roi=(left_roi, right_roi),
+                                                    blackout=(left_blackout, right_blackout) )
 
     # process the dataset
     stereo_kwargs = { 'zoom'       : pargs.zoom,
@@ -521,7 +489,8 @@ def main( args=None ):
                       'alpha'      : pargs.alpha,
                       'sub_thresh' : pargs.subtract_thresh,
                       'proc_show'  : pargs.show_processed }
-    processor.process_dataset( processor.dataset, save=pargs.save, overwrite=pargs.force_overwrite, **stereo_kwargs )
+    image_processor.process_dataset( image_processor.dataset, save=pargs.save, overwrite=pargs.force_overwrite,
+                                     **stereo_kwargs )
 
     print( "Program completed." )
 
