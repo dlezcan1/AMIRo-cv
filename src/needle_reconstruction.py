@@ -11,14 +11,14 @@ import argparse
 import glob
 import os
 import re
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Union, List
+from typing import List, Any
 
 import cv2 as cv
 import numpy as np
 
-# import stereo_needle_proc as stereo_needle
 from stereo_needle_proc import load_stereoparams_matlab, needle_reconstruction_ref
 
 
@@ -33,8 +33,29 @@ class ImageROI:
 
 @dataclass
 class StereoPair:
-    left: Union[ np.ndarray, list ] = None
-    right: Union[ np.ndarray, list ] = None
+    left: Any = None
+    right: Any = None
+
+    def __eq__( self, other ):
+        if isinstance( other, StereoPair ):
+            retval = (self.left == other.left, self.right == other.right)
+
+        elif isinstance( other, (tuple, list) ):
+            retval = (self.left == other[ 0 ], self.right == other[ 1 ])
+
+        else:
+            retval = (self.left == other, self.right == other)
+
+        return retval
+
+    # __eq__
+
+    def set_pair( self, left, right ):
+        """ Function to set the stereo pair"""
+        self.left = left
+        self.right = right
+
+    # set_pair
 
 
 # dataclass: StereoPair
@@ -166,7 +187,7 @@ class StereoRefInsertionExperiment:
 
                 # if
 
-                print(f"Processing dataset: {d}")
+                print( f"Processing dataset: {d}" )
 
                 # load the next image pair
                 left_file = os.path.join( d, 'left.png' )
@@ -201,6 +222,185 @@ class StereoRefInsertionExperiment:
 
 # class: StereoRefInsertionExperiment
 
+class StereoRefInsertionExperimentVideo( StereoRefInsertionExperiment ):
+    left_video = 'left_video.avi'
+    right_video = 'right_video.avi'
+    frame_file = 'frame_num.txt'
+
+    def __init__( self, stereo_param_file: str, data_dir: str, insertion_depths: list, insertion_numbers: list,
+                  roi: tuple = None, blackout: tuple = None ):
+        super().__init__( stereo_param_file, data_dir, insertion_depths, insertion_numbers, roi=roi, blackout=blackout )
+
+        # configure the video dataset
+        self.video_dataset, self.frame_numbers = self.configure_video_data( self.data_directory, self.insertion_depths,
+                                                                            self.insertion_numbers )
+
+        # configure the processed frames
+        self.processed_frames = { }  # empty dict with keys
+
+    # __init__
+
+    @classmethod
+    def configure_video_data( cls, directory: str, insertion_depths: list, insertion_numbers: list ) -> (
+            StereoPair, list):
+        video_dataset = ()
+        frame_numbers = [ ]
+
+        left_video = os.path.join( directory, cls.left_video )
+        right_video = os.path.join( directory, cls.right_video )
+
+        if os.path.isfile( left_video ) and os.path.isfile( right_video ):
+            video_dataset = StereoPair( left=left_video, right=right_video )
+
+        # if
+
+        time_files = glob.glob( os.path.join( directory, 'Insertion*/*/', cls.frame_file ) )
+
+        # iterate over the potential directories
+        for f in time_files:
+            res = re.search( cls.directory_pattern, f )
+
+            if res is not None:
+                insertion_num, insertion_depth = res.groups()
+                insertion_num = int( insertion_num )
+                insertion_depth = float( insertion_depth )
+
+                # only include insertion depths that we want to process
+                if insertion_depth in insertion_depths and insertion_num in insertion_numbers:
+                    num = int( np.loadtxt( f ) )
+                    frame_numbers.append( (insertion_num, insertion_depth, num) )
+
+                # if
+            # if
+        # for
+
+        frame_numbers = sorted( frame_numbers, key=lambda x: x[ 2 ] )  # sort them by increasing video frame numbers
+
+        return video_dataset, frame_numbers
+
+    # configure_dataset
+
+    def process_video( self, save: bool = True, overwrite: bool = False, **kwargs ):
+        """ Process the video frames"""  # TODO: make better/more efficient
+        # determine the reference images
+        print( "Determining reference frames" )
+        reference_images = { }  # {insertion_hole: StereoPair(left, right reference)}
+        for current_hole in self.insertion_numbers:
+            ins_dir = os.path.join( self.data_directory, f'Insertion{current_hole}' )
+            if os.path.isdir( ins_dir ):
+                left_img = os.path.join( ins_dir, '0/left.png' )
+                right_img = os.path.join( ins_dir, '0/right.png' )
+
+                reference_images[ current_hole ] = StereoPair( left=left_img, right=right_img )
+
+            # if
+        # for
+
+        # load the videos
+        left_video = cv.VideoCapture( self.video_dataset.left )
+        right_video = cv.VideoCapture( self.video_dataset.right )
+        stereo_video_dir = os.path.join( self.data_directory, 'stereo_video' )
+        stereo_video_file = os.path.join( self.data_directory, 'stereo_video.avi' )
+        stereo_points_file = os.path.join( self.data_directory, 'stereo_video_points.xlsx' )
+        if not os.path.isdir(stereo_video_dir):
+            os.mkdir( stereo_video_dir )
+
+        # if
+
+        frame_rate = left_video.get( cv.CAP_PROP_FPS )
+        frame_height = int( left_video.get( cv.CAP_PROP_FRAME_HEIGHT ) )
+        frame_width = int( left_video.get( cv.CAP_PROP_FRAME_WIDTH ) )
+        num_frames = int( left_video.get( cv.CAP_PROP_FRAME_COUNT ) )
+        # stereo_video = cv.VideoWriter( stereo_video_file, cv.VideoWriter_fourcc( *'XVID' ), frame_rate,
+        #                                (2 * frame_width + 20, frame_height) )  # add the pad size
+        # stereo_points_xl = pd.ExcelWriter( stereo_points_file )
+
+        # process the video frames
+        # processed_frames = [ ]
+        current_frame, current_hole = 0, 0
+        print( "Processing video..." )
+        while left_video.isOpened() and right_video.isOpened():
+            t0 = time.time()
+            msgs = [ ]
+            ret_l, frame_l = left_video.read()
+            ret_r, frame_r = right_video.read()
+
+            current_frame += 1  # update the current frame
+
+            # make sure we have two valid frames
+            if not ret_l or not ret_r:
+                break
+
+            # if
+            self._needle_reconstructor.image.set_pair( cv.cvtColor( frame_l, cv.COLOR_BGR2RGB ),
+                                                       cv.cvtColor( frame_r, cv.COLOR_BGR2RGB ) )
+
+            # check if we are on the current data frame
+            dataframe = list( filter( lambda x: x[ 2 ] == current_frame, self.frame_numbers ) )
+
+            if len( dataframe ) == 1:  # we have exactly one match
+                current_hole, ins_depth, _ = dataframe[ 0 ]
+                if ins_depth == 0:  # this is a reference image
+                    self._needle_reconstructor.load_image_pair( reference_images[ current_hole ].left,
+                                                                reference_images[ current_hole ].right,
+                                                                reference=True )  # corresponding reference image
+
+                # if
+            # if
+
+            # make sure we have set the reference frames and have current images
+            if current_hole > 0:
+                if all( [ self._needle_reconstructor.image.left is not None,
+                          self._needle_reconstructor.image.right is not None,
+                          self._needle_reconstructor.reference.left is not None,
+                          self._needle_reconstructor.reference.right is not None,
+                          current_hole in reference_images.keys() ] ):
+                    # reconstruct the 3D needle shape
+                    try:
+                        pts_3d = self._needle_reconstructor.reconstruct_needle( **kwargs )
+
+                        # grab the processed image pair
+                        # processed_image = self._needle_reconstructor.processed_images[
+                        #     'contours-match' ].astype( np.uint8 )  # matched contours
+                        # processed_image = cv.cvtColor( processed_image, cv.COLOR_RGB2BGR )
+
+                        # Output the data
+                        # stereo_video.write( processed_image )
+                        outfile = os.path.join( stereo_video_dir, str( current_frame ) + ".csv" )
+                        # pd.DataFrame( pts_3d ).to_excel( stereo_points_xl, sheet_name=str( current_frame ) )
+                        self._needle_reconstructor.save_3dpoints( outfile=outfile )
+
+                        msgs.append( "Needle Detected" )
+
+                    # try
+                    except Exception as e:
+                        # stereo_video.write( (imconcat( frame_l, frame_r, [ 0, 0, 255 ] )).astype( 'uint8' ) )
+                        pass
+                    # except
+
+            # if
+            else:
+                # stereo_video.write( (imconcat( frame_l, frame_r, [ 0, 0, 255 ] )).astype( 'uint8' ) )
+                pass
+
+            # else
+
+            dt = time.time() - t0
+            time_to_completion = (num_frames - current_frame) * dt
+            msgs.append( f"Completed frame {current_frame}/{num_frames}" )
+            msgs.append( f"{current_frame / num_frames * 100:.3f}% complete" )
+            msgs.append( f"Time to Complete: {int( time_to_completion // 60 )} min {time_to_completion % 60:.3f}s" )
+            print( " | ".join( msgs ), flush=True )
+
+        # while
+        left_video.release(), right_video.release()  # , stereo_points_xl.close() , stereo_video.release()
+        # print( f"Saved stereo video: {stereo_video_file}" )
+        # print( f"Saved stereo video points: {stereo_points_file}" )
+
+    # process_video
+
+
+# class: StereoRefInsertionExperimentVideo
 
 class StereoNeedleReconstruction( ABC ):
     """ Basic class for stereo needle reconstruction"""
@@ -251,7 +451,7 @@ class StereoNeedleReconstruction( ABC ):
 
     # reconstruct_needle
 
-    def save_3dpoints( self, outfile: str = None, directory: str = '' ):
+    def save_3dpoints( self, outfile: str = None, directory: str = '', verbose: bool=False ):
         """ Save the 3D reconstruction to a file """
 
         if self.needle_shape is not None:
@@ -263,7 +463,10 @@ class StereoNeedleReconstruction( ABC ):
             outfile = os.path.join( directory, outfile )
 
             np.savetxt( outfile, self.needle_shape, delimiter=',' )
-            print( "Saved reconstructed shape:", outfile )
+            if verbose:
+                print( "Saved reconstructed shape:", outfile )
+
+            # if
 
         # if
 
@@ -347,11 +550,11 @@ class StereoNeedleRefReconstruction( StereoNeedleReconstruction ):
 
         """
         # keyword argument parsing
-        window_size = kwargs.get('window_size', (201, 51))
-        zoom = kwargs.get('zoom', 1.0)
-        alpha = kwargs.get('alpha', 0.6)
-        sub_thresh = kwargs.get('sub_thresh', 60)
-        proc_show = kwargs.get('proc_show', False)
+        window_size = kwargs.get( 'window_size', (201, 51) )
+        zoom = kwargs.get( 'zoom', 1.0 )
+        alpha = kwargs.get( 'alpha', 0.6 )
+        sub_thresh = kwargs.get( 'sub_thresh', 60 )
+        proc_show = kwargs.get( 'proc_show', False )
 
         # perform stereo reconstruction
         pts_3d, pts_l, pts_r, bspline_l, bspline_r, imgs, figs = \
@@ -417,6 +620,9 @@ def __get_parser() -> argparse.ArgumentParser:
     parser.add_argument( '--subtract-thresh', type=float, default=60,
                          help='The threshold for reference image subtraction.' )
 
+    # video processing
+    parser.add_argument( '--video', action='store_true', help="Process stereo videos" )
+
     return parser
 
 
@@ -478,10 +684,18 @@ def main( args=None ):
     # else
 
     # instantiate the Insertion Experiment data processor
-    image_processor = StereoRefInsertionExperiment( pargs.stereoParamFile, pargs.dataDirectory,
-                                                    pargs.insertion_depths, pargs.insertion_numbers,
-                                                    roi=(left_roi, right_roi),
-                                                    blackout=(left_blackout, right_blackout) )
+    if pargs.video:
+        image_processor = StereoRefInsertionExperimentVideo( pargs.stereoParamFile, pargs.dataDirectory,
+                                                             pargs.insertion_depths, pargs.insertion_numbers,
+                                                             roi=(left_roi, right_roi),
+                                                             blackout=(left_blackout, right_blackout) )
+    # if
+    else:  # Insertion Images
+        image_processor = StereoRefInsertionExperiment( pargs.stereoParamFile, pargs.dataDirectory,
+                                                        pargs.insertion_depths, pargs.insertion_numbers,
+                                                        roi=(left_roi, right_roi),
+                                                        blackout=(left_blackout, right_blackout) )
+    # else
 
     # process the dataset
     stereo_kwargs = { 'zoom'       : pargs.zoom,
@@ -489,8 +703,13 @@ def main( args=None ):
                       'alpha'      : pargs.alpha,
                       'sub_thresh' : pargs.subtract_thresh,
                       'proc_show'  : pargs.show_processed }
-    image_processor.process_dataset( image_processor.dataset, save=pargs.save, overwrite=pargs.force_overwrite,
-                                     **stereo_kwargs )
+    if pargs.video:
+        image_processor.process_video( save=pargs.save, overwrite=pargs.force_overwrite, **stereo_kwargs )
+    # if
+    else:
+        image_processor.process_dataset( image_processor.dataset, save=pargs.save, overwrite=pargs.force_overwrite,
+                                         **stereo_kwargs )
+    # else
 
     print( "Program completed." )
 

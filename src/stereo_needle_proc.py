@@ -762,7 +762,8 @@ def imconcat( left_im, right_im, pad_val: Union[ int, list ] = 0, pad_size: int 
     # if
 
     elif left_im.ndim == 3:
-        padding = np.array( pad_val ) * np.ones( (left_im.shape[ 0 ], pad_size, left_im.shape[ 2 ]), dtype=left_im.dtype )
+        padding = np.array( pad_val ) * np.ones( (left_im.shape[ 0 ], pad_size, left_im.shape[ 2 ]),
+                                                 dtype=left_im.dtype )
 
     # elif
 
@@ -775,6 +776,17 @@ def imconcat( left_im, right_im, pad_val: Union[ int, list ] = 0, pad_size: int 
 
 
 # imconcat
+
+def imsplit( left_right_im, img_size: tuple ):
+    N_rows, N_cols, *_ = img_size
+
+    left_im = left_right_im[ :N_rows, :N_cols ]
+    right_im = left_right_im[ :N_rows, -N_cols: ]
+
+    return left_im, right_im
+
+
+# imsplit
 
 
 def imgproc_jig( left_img, right_img, bor_l=None, bor_r=None,
