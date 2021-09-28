@@ -1062,8 +1062,8 @@ def needle_jig_reconstruction( img_left, img_right, stereo_params,
     ret_images[ 'rect' ] = imconcat( left_rect, right_rect, [ 0, 0, 255 ] )
 
     # # map the rois
-    boroi_l_img = roi_image( roi_l, img_left.shape ) & blackout_image( bor_l, img_left.shape )
-    boroi_r_img = roi_image( roi_r, img_right.shape ) & blackout_image( bor_r, img_right.shape )
+    boroi_l_img = roi_mask( roi_l, img_left.shape ) & blackout_image( bor_l, img_left.shape )
+    boroi_r_img = roi_mask( roi_r, img_right.shape ) & blackout_image( bor_r, img_right.shape )
     ret_images[ 'roi-bo-bool' ] = imconcat( 255 * boroi_l_img, 255 * boroi_r_img, 125 )
 
     boroi_l_mapped = cv.remap( boroi_l_img.astype( np.uint8 ), map_l[ 0 ], map_l[ 1 ], cv.INTER_NEAREST )
@@ -1146,7 +1146,7 @@ def needle_jig_reconstruction( img_left, img_right, stereo_params,
         ax.plot( pts_3d[ :, 0 ], pts_3d[ :, 1 ], pts_3d[ :, 2 ] )
         plt.title( '3-D reconstruction: axes NOT scaled' )
 
-        plt.show()
+        # plt.show()
 
     # if
 
@@ -1184,8 +1184,8 @@ def needle_jig_reconstruction_refined( img_left, img_right, stereo_params,
     imgs_ret[ 'rect' ] = imconcat( left_rect, right_rect, [ 0, 0, 255 ] )
 
     # # map the rois
-    boroi_l_img = roi_image( roi_l, img_left.shape ) & blackout_image( bor_l, img_left.shape )
-    boroi_r_img = roi_image( roi_r, img_right.shape ) & blackout_image( bor_r, img_right.shape )
+    boroi_l_img = roi_mask( roi_l, img_left.shape ) & blackout_image( bor_l, img_left.shape )
+    boroi_r_img = roi_mask( roi_r, img_right.shape ) & blackout_image( bor_r, img_right.shape )
     imgs_ret[ 'roi-bo-bool' ] = imconcat( 255 * boroi_l_img, 255 * boroi_r_img, 125 )
 
     boroi_l_mapped = cv.remap( boroi_l_img.astype( np.uint8 ), map_l[ 0 ], map_l[ 1 ], cv.INTER_NEAREST )
@@ -1372,8 +1372,8 @@ def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref, stereo_
     imgs_ret[ 'rect-seg' ] = imconcat( 255 * left_seg_rect, 255 * right_seg_rect, 125 )
 
     # - map the rois
-    boroi_l_img = roi_image( roi_l, left_img.shape ) & blackout_image( bor_l, left_img.shape )
-    boroi_r_img = roi_image( roi_r, right_img.shape ) & blackout_image( bor_r, right_img.shape )
+    boroi_l_img = roi_mask( roi_l, left_img.shape ) & blackout_image( bor_l, left_img.shape )
+    boroi_r_img = roi_mask( roi_r, right_img.shape ) & blackout_image( bor_r, right_img.shape )
     imgs_ret[ 'roi-bo-bool' ] = imconcat( 255 * boroi_l_img, 255 * boroi_r_img, 125 )
 
     boroi_l_mapped = cv.remap( boroi_l_img.astype( np.uint8 ), map_l[ 0 ], map_l[ 1 ], cv.INTER_NEAREST )
@@ -1524,7 +1524,7 @@ def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref, stereo_
         ax.plot( pts_3d[ -1, 0 ], pts_3d[ -1, 1 ], pts_3d[ -1, 2 ], 'g*' )
         plt.title( '3-D reconstruction' )
 
-        plt.show()
+        # plt.show()
 
     # if
 
@@ -1573,8 +1573,8 @@ def needle_tissue_reconstruction_refined( img_left, img_right, stereo_params,
     imgs_ret[ 'rect' ] = imconcat( left_rect_full, right_rect_full, [ 0, 0, 255 ] )
 
     # # map the rois
-    boroi_l_img = roi_image( roi_l, img_left.shape ) & blackout_image( bor_l, img_left.shape )
-    boroi_r_img = roi_image( roi_r, img_right.shape ) & blackout_image( bor_r, img_right.shape )
+    boroi_l_img = roi_mask( roi_l, img_left.shape ) & blackout_image( bor_l, img_left.shape )
+    boroi_r_img = roi_mask( roi_r, img_right.shape ) & blackout_image( bor_r, img_right.shape )
     imgs_ret[ 'roi-bo-bool' ] = imconcat( 255 * boroi_l_img, 255 * boroi_r_img, 125 )
 
     boroi_l_mapped = cv.remap( boroi_l_img.astype( np.uint8 ), map_l[ 0 ], map_l[ 1 ], cv.INTER_NEAREST )
@@ -1944,7 +1944,7 @@ def roi( img, roi_bnds, full: bool = True ):
 # roi
 
 
-def roi_image( reg_of_int, image_size ):
+def roi_mask( reg_of_int, image_size ):
     roi_bool = np.ones( image_size[ :2 ], dtype=bool )
 
     roi_bool = roi( roi_bool, reg_of_int ).astype( bool )
