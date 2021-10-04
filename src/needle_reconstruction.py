@@ -368,7 +368,7 @@ class StereoRefInsertionExperimentARUCO( StereoRefInsertionExperiment ):
                                                          parameters=cls.aruco_parameters )
 
         if isinstance( aruco_id, int ):
-            idx_keep = np.argwhere( ids.ravel() == aruco_id ) if ids is not None else []
+            idx_keep = np.argwhere( ids.ravel() == aruco_id ) if ids is not None else [ ]
             if len( idx_keep ) == 1:
                 ids_keep = ids[ idx_keep[ 0 ] ]
                 corners_keep = [ corners[ idx_keep[ 0, 0 ] ] ]
@@ -381,7 +381,7 @@ class StereoRefInsertionExperimentARUCO( StereoRefInsertionExperiment ):
 
         # if
         elif isinstance( aruco_id, list ):
-            idxs_keep = np.argwhere( list( map( lambda id: id in aruco_id, ids.ravel() ) ) ) if ids is not None else []
+            idxs_keep = np.argwhere( list( map( lambda id: id in aruco_id, ids.ravel() ) ) ) if ids is not None else [ ]
             if len( idxs_keep ) > 0:
                 ids_keep = ids[ idxs_keep ]
                 corners_keep = [ corners[ idx ] for idx in idxs_keep.ravel() ]
@@ -529,7 +529,7 @@ class StereoRefInsertionExperimentARUCO( StereoRefInsertionExperiment ):
 
             # if
             else:
-                left_pose_msg = np.array2string(np.array([np.nan]*6), separator=',').strip('[] ')
+                left_pose_msg = np.array2string( np.array( [ np.nan ] * 6 ), separator=',' ).strip( '[] ' )
 
             # else
 
@@ -1022,8 +1022,8 @@ def main( args=None ):
         assert (len( pargs.left_blackout ) % 4 == 0)  # check if there are adequate pairs
         left_blackout = [ ]
         for i in range( 0, len( pargs.left_blackout ), 4 ):
-            left_blackout.append( [ [ pargs.left_blackout[ i:i + 2 ],
-                                      [ pargs.left_blackout[ i + 2:i + 4 ] ] ] ] )
+            left_blackout.append( [ pargs.left_blackout[ i:i + 2 ],
+                                    pargs.left_blackout[ i + 2:i + 4 ] ] )
 
         # for
 
@@ -1037,8 +1037,8 @@ def main( args=None ):
         assert (len( pargs.right_blackout ) % 4 == 0)  # check if there are adequate pairs
         right_blackout = [ ]
         for i in range( 0, len( pargs.right_blackout ), 4 ):
-            right_blackout.append( [ [ pargs.right_blackout[ i:i + 2 ],
-                                       [ pargs.right_blackout[ i + 2:i + 4 ] ] ] ] )
+            right_blackout.append( [ pargs.right_blackout[ i:i + 2 ],
+                                     pargs.right_blackout[ i + 2:i + 4 ] ] )
 
         # for
 
