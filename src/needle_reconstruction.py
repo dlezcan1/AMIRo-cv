@@ -302,6 +302,7 @@ class StereoRefInsertionExperimentARUCO( StereoRefInsertionExperiment ):
     aruco_parameters = cv.aruco.DetectorParameters_create()
     aruco_pose_outfile = "left-right_aruco-poses.csv"
     aruco_detect_imgfile = "left-right_rect-aruco.png"
+    aruco_imgproc_imgfile = "left-right_rect-aruco-img-proc.png"
 
     def __init__( self, stereo_param_file: str, data_dir: str, insertion_depths: list, insertion_numbers: list,
                   aruco_id: int, aruco_size: float, roi: tuple = None, blackout: tuple = None ):
@@ -408,7 +409,7 @@ class StereoRefInsertionExperimentARUCO( StereoRefInsertionExperiment ):
 
         # else
 
-        return (rvecs, tvecs), objpoints, (ids_keep, corners_keep), (ids, corners, rejected)
+        return (rvecs, tvecs), objpoints, (ids_keep, corners_keep), (ids, corners, rejected), proc_img
 
     # estimate_aruco_pose
 
@@ -434,20 +435,22 @@ class StereoRefInsertionExperimentARUCO( StereoRefInsertionExperiment ):
         distCoeffs_r = np.zeros_like( self.stereo_params[ 'distCoeffs2' ] )
 
         # estimate aruco poses
-        poses_l, _, id_corners_l, *_ = self.estimate_aruco_pose( rect_l,
-                                                                 self.aruco_id, self.aruco_size,
-                                                                 camMtx_l, distCoeffs_l,
-                                                                 segment_marker=True,
-                                                                 aruco_roi=kwargs.get( 'aruco_left_roi' ),
-                                                                 aruco_blackout=kwargs.get( 'aruco_left_blackout' ),
-                                                                 **kwargs )
-        poses_r, _, id_corners_r, *_ = self.estimate_aruco_pose( rect_r,
-                                                                 self.aruco_id, self.aruco_size,
-                                                                 camMtx_r, distCoeffs_r,
-                                                                 segment_marker=True,
-                                                                 aruco_roi=kwargs.get( 'aruco_right_roi' ),
-                                                                 aruco_blackout=kwargs.get( 'aruco_right_blackout' ),
-                                                                 **kwargs )
+        poses_l, _, id_corners_l, _, proc_img_l = self.estimate_aruco_pose( rect_l,
+                                                                            self.aruco_id, self.aruco_size,
+                                                                            camMtx_l, distCoeffs_l,
+                                                                            segment_marker=True,
+                                                                            aruco_roi=kwargs.get( 'aruco_left_roi' ),
+                                                                            aruco_blackout=kwargs.get(
+                                                                                    'aruco_left_blackout' ),
+                                                                            **kwargs )
+        poses_r, _, id_corners_r, _, proc_img_r = self.estimate_aruco_pose( rect_r,
+                                                                            self.aruco_id, self.aruco_size,
+                                                                            camMtx_r, distCoeffs_r,
+                                                                            segment_marker=True,
+                                                                            aruco_roi=kwargs.get( 'aruco_right_roi' ),
+                                                                            aruco_blackout=kwargs.get(
+                                                                                    'aruco_right_blackout' ),
+                                                                            **kwargs )
         aruco_poses = StereoPair( left=poses_l, right=poses_r )
 
         # draw the markers
@@ -476,22 +479,31 @@ class StereoRefInsertionExperimentARUCO( StereoRefInsertionExperiment ):
 
         # else
 
+        leftright_prc = stereo_needle.imconcat( proc_img_l, proc_img_r, pad_val=[ 0, 0, 255 ] ).astype( np.uint8 )
         leftright_ann = stereo_needle.imconcat( left_ann, right_ann, pad_val=[ 0, 0, 255 ] ).astype( np.uint8 )
+        self.processed_images[ 'aruco-img-proc' ] = leftright_prc
         self.processed_images[ 'aruco' ] = leftright_ann
 
         # show the aruco processed images
         if kwargs.get( 'proc_show', False ):
-            fig = plt.figure( figsize=(12, 8) )
+            fig_proc = plt.figure( figsize=(12, 8) )
+            plt.imshow( cv.cvtColor( leftright_prc, cv.COLOR_BGR2RGB ) )
+            plt.title( "ARUCO Image Processing" )
+
+            fig_pose = plt.figure( figsize=(12, 8) )
             plt.imshow( cv.cvtColor( leftright_ann, cv.COLOR_BGR2RGB ) )
             plt.title( "ARUCO Pose Estimation" )
 
-            self.processed_figures[ 'aruco' ] = fig
+            self.processed_figures[ 'aruco-img-proc' ] = fig_proc
+            self.processed_figures[ 'aruco' ] = fig_pose
 
         # if
 
         # save the images
         if save:
+            aruco_proc_file = os.path.join( directory, self.aruco_imgproc_imgfile )
             aruco_detect_file = os.path.join( directory, self.aruco_detect_imgfile )
+            cv.imwrite( aruco_proc_file, leftright_prc )
             cv.imwrite( aruco_detect_file, leftright_ann )
             print( "Saved figure:", aruco_detect_file )
 
