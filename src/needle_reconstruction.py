@@ -93,7 +93,7 @@ class StereoRefInsertionExperiment:
     directory_pattern = r".*[/,\\]Insertion([0-9]+)[/,\\]([0-9]+).*"  # data directory pattern
 
     def __init__( self, stereo_param_file: str, data_dir: str, insertion_depths: list = None,
-                  insertion_numbers: list = None, roi: tuple = None, blackout: tuple = None ):
+                  insertion_numbers: list = None, roi: tuple = None, blackout: tuple = None, contrast: tuple = None ):
         stereo_params = stereo_needle.load_stereoparams_matlab( stereo_param_file )
         self.data_directory = os.path.normpath( data_dir )
         self.insertion_numbers = insertion_numbers
@@ -116,6 +116,13 @@ class StereoRefInsertionExperiment:
         if blackout is not None:
             self.needle_reconstructor.blackout.left = blackout[ 0 ]
             self.needle_reconstructor.blackout.right = blackout[ 1 ]
+
+        # if
+
+        # set the image contrast enhancements
+        if contrast is not None:
+            self.needle_reconstructor.contrast.left = contrast[ 0 ]
+            self.needle_reconstructor.contrast.right = contrast[ 1 ]
 
         # if
 
@@ -305,9 +312,9 @@ class StereoRefInsertionExperimentARUCO( StereoRefInsertionExperiment ):
     aruco_imgproc_imgfile = "left-right_rect-aruco-img-proc.png"
 
     def __init__( self, stereo_param_file: str, data_dir: str, insertion_depths: list, insertion_numbers: list,
-                  aruco_id: int, aruco_size: float, roi: tuple = None, blackout: tuple = None ):
+                  aruco_id: int, aruco_size: float, roi: tuple = None, blackout: tuple = None, contrast: tuple = None ):
         super().__init__( stereo_param_file, data_dir, insertion_depths, insertion_numbers,
-                          roi=roi, blackout=blackout )
+                          roi=roi, blackout=blackout, contrast=contrast )
 
         assert (0 <= aruco_id < 50)  # make sure we are in the dictionary
         assert (aruco_size > 0)  # ensure positive aruco side length
@@ -577,8 +584,9 @@ class StereoRefInsertionExperimentVideo( StereoRefInsertionExperiment ):
     frame_file = 'frame_num.txt'
 
     def __init__( self, stereo_param_file: str, data_dir: str, insertion_depths: list, insertion_numbers: list,
-                  roi: tuple = None, blackout: tuple = None ):
-        super().__init__( stereo_param_file, data_dir, insertion_depths, insertion_numbers, roi=roi, blackout=blackout )
+                  roi: tuple = None, blackout: tuple = None, contrast: tuple = None ):
+        super().__init__( stereo_param_file, data_dir, insertion_depths, insertion_numbers, roi=roi, blackout=blackout,
+                          contrast=contrast )
 
         # configure the video dataset
         self.video_dataset, self.frame_numbers = self.configure_video_data( self.data_directory, self.insertion_depths,
@@ -761,6 +769,7 @@ class StereoNeedleReconstruction( ABC ):
 
         self.roi = StereoPair( [ ], [ ] )
         self.blackout = StereoPair( [ ], [ ] )
+        self.contrast = StereoPair( (1, 0), (1, 0) )  # (alpha, beta): alpha * image + beta
 
         self.needle_shape = None
         self.img_points = StereoPair( None, None )
@@ -769,6 +778,20 @@ class StereoNeedleReconstruction( ABC ):
         self.processed_figures = { }
 
     # __init__
+
+    @staticmethod
+    def contrast_enhance( image: np.ndarray, alpha: float, beta: float ):
+        """ Perform contrast enhancement of an image
+
+            :param image: the input image
+            :param alpha: the scaling term for contrast enhancement
+            :param beta:  the offset term for contrast enhancement
+
+            :returns: the contrast enhanced image as a float numpy array
+        """
+        return np.clip( alpha * (image.astype( float )) + beta, 0, 255 )
+
+    # contrast_enhance
 
     def load_image_pair( self, left_file: str = None, right_file: str = None ):
         """ Load the image pair. If the one of the files is none, that image will not be loaded
@@ -905,10 +928,20 @@ class StereoNeedleRefReconstruction( StereoNeedleReconstruction ):
         sub_thresh = kwargs.get( 'sub_thresh', 60 )
         proc_show = kwargs.get( 'proc_show', False )
 
+        # perform contrast enhancement
+        ref_left = self.contrast_enhance( self.reference.left, self.contrast.left[ 0 ],
+                                          self.contrast.left[ 0 ] ).astype( np.uint8 )
+        img_left = self.contrast_enhance( self.image.left, self.contrast.left[ 0 ],
+                                          self.contrast.left[ 1 ] ).astype( np.uint8 )
+        ref_right = self.contrast_enhance( self.reference.right, self.contrast.right[ 0 ],
+                                           self.contrast.left[ 0 ] ).astype( np.uint8 )
+        img_right = self.contrast_enhance( self.image.right, self.contrast.right[ 0 ],
+                                           self.contrast.right[ 1 ] ).astype( np.uint8 )
+
         # perform stereo reconstruction
         pts_3d, pts_l, pts_r, bspline_l, bspline_r, imgs, figs = \
-            stereo_needle.needle_reconstruction_ref( self.image.left, self.reference.left,
-                                                     self.image.right, self.reference.right,
+            stereo_needle.needle_reconstruction_ref( img_left, ref_left,
+                                                     img_right, ref_right,
                                                      stereo_params=self.stereo_params, recalc_stereo=True,
                                                      bor_l=self.blackout.left, bor_r=self.blackout.right,
                                                      roi_l=self.roi.left, roi_r=self.roi.right,
@@ -928,7 +961,7 @@ class StereoNeedleRefReconstruction( StereoNeedleReconstruction ):
 
         return pts_3d[ :, 0:3 ]
 
-        # reconstruct_needle
+    # reconstruct_needle
 
 
 # class:StereoNeedleRefReconstruction
@@ -963,6 +996,11 @@ def __get_parser() -> argparse.ArgumentParser:
                                 help='The blackout regions for the left image' )
     imgproc_group.add_argument( '--right-blackout', nargs='+', type=int, default=[ ],
                                 help='The blackout regions for the right image' )
+
+    imgproc_group.add_argument( '--left-contrast-enhance', nargs=2, type=float, default=[ ],
+                                help='The left image contrast enhancement', metavar=('ALPHA', 'BETA') )
+    imgproc_group.add_argument( '--right-contrast-enhance', nargs=2, type=float, default=[ ],
+                                help='The left image contrast enhancement', metavar=('ALPHA', 'BETA') )
 
     # reconstruction parameters
     imgproc_group.add_argument( '--zoom', type=float, default=1.0, help="The zoom for stereo template matching" )
@@ -1060,6 +1098,10 @@ def main( args=None ):
 
     # else
 
+    # contrast enhancement
+    left_contrast = tuple( pargs.left_contrast_enhance ) if len( pargs.left_contrast_enhance ) > 0 else None
+    right_contrast = tuple( pargs.right_contrast_enhance ) if len( pargs.right_contrast_enhance ) > 0 else None
+
     # instantiate the Insertion Experiment data processor
     # process the dataset
     stereo_kwargs = { 'zoom'                : pargs.zoom,
@@ -1079,7 +1121,8 @@ def main( args=None ):
         image_processor = StereoRefInsertionExperimentVideo( pargs.stereoParamFile, pargs.dataDirectory,
                                                              pargs.insertion_depths, pargs.insertion_numbers,
                                                              roi=(left_roi, right_roi),
-                                                             blackout=(left_blackout, right_blackout) )
+                                                             blackout=(left_blackout, right_blackout),
+                                                             contrast=(left_contrast, right_contrast) )
         image_processor.process_video( save=pargs.save, overwrite=pargs.force_overwrite, **stereo_kwargs )
     # if
     elif (pargs.aruco_id is not None) and (pargs.aruco_size is not None):
@@ -1087,13 +1130,15 @@ def main( args=None ):
                                                              pargs.insertion_depths, pargs.insertion_numbers,
                                                              aruco_id=pargs.aruco_id, aruco_size=pargs.aruco_size,
                                                              roi=(left_roi, right_roi),
-                                                             blackout=(left_blackout, right_blackout) )
+                                                             blackout=(left_blackout, right_blackout),
+                                                             contrast=(left_contrast, right_contrast) )
     # elif
     else:  # Insertion Images
         image_processor = StereoRefInsertionExperiment( pargs.stereoParamFile, pargs.dataDirectory,
                                                         pargs.insertion_depths, pargs.insertion_numbers,
                                                         roi=(left_roi, right_roi),
-                                                        blackout=(left_blackout, right_blackout) )
+                                                        blackout=(left_blackout, right_blackout),
+                                                        contrast=(left_contrast, right_contrast) )
     # else
 
     image_processor.process_dataset( image_processor.dataset, save=pargs.save, overwrite=pargs.force_overwrite,

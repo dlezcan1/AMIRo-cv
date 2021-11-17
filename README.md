@@ -39,31 +39,33 @@ This is a library of stereo imaging classes as well as a script to perform image
 The script usage is
 ```
 python \
-needle_reconstruction.py [-h] [--insertion-numbers INSERTION_NUMBERS [INSERTION_NUMBERS ...]]
-                              [--insertion-depths INSERTION_DEPTHS [INSERTION_DEPTHS ...]]
-                              [--show-processed] [--save] [--force-overwrite]
-                              [--left-roi TOP_Y TOP_X BOTTOM_Y BOTTOM_X] 
-                              [--right-roi TOP_Y TOP_X BOTTOM_Y BOTTOM_X]
-                              [--left-blackout LEFT_BLACKOUT [LEFT_BLACKOUT ...]] 
-                              [--right-blackout RIGHT_BLACKOUT [RIGHT_BLACKOUT ...]] 
-                              [--zoom ZOOM] [--window-size WIDTH HEIGHT] 
-                              [--alpha ALPHA] [--subtract-thresh SUBTRACT_THRESH]
-                              stereoParamFile dataDirectory
+  needle_reconstruction.py [-h] [--insertion-numbers INSERTION_NUMBERS [INSERTION_NUMBERS ...]] [--insertion-depths INSERTION_DEPTHS [INSERTION_DEPTHS ...]] [--show-processed] [--save] [--force-overwrite]
+                                [--left-roi TOP_Y TOP_X BOTTOM_Y BOTTOM_X] [--right-roi TOP_Y TOP_X BOTTOM_Y BOTTOM_X] [--left-blackout LEFT_BLACKOUT [LEFT_BLACKOUT ...]] [--right-blackout RIGHT_BLACKOUT [RIGHT_BLACKOUT ...]]
+                                [--left-contrast-enhance ALPHA BETA] [--right-contrast-enhance ALPHA BETA] [--zoom ZOOM] [--window-size WIDTH HEIGHT] [--alpha ALPHA] [--subtract-thresh SUBTRACT_THRESH] [--video]
+                                [--aruco-id ARUCO_ID] [--aruco-size ARUCO_SIZE] [--aruco-thresh ARUCO_THRESH] [--aruco-contrast ALPHA BETA] [--aruco-left-roi TOP_Y TOP_X BOTTOM_Y BOTTOM_X]
+                                [--aruco-right-roi TOP_Y TOP_X BOTTOM_Y BOTTOM_X] [--aruco-left-blackout TOP_Y TOP_X BOTTOM_Y BOTTOM_X] [--aruco-right-blackout TOP_Y TOP_X BOTTOM_Y BOTTOM_X]
+                                stereoParamFile dataDirectory
 
 Perform 3D needle reconstruction of the needle insertion experiments.
 
-positional arguments:
-  stereoParamFile       Stereo Calibration parameter file
-  dataDirectory         Needle Insertion Experiment directory
-
 optional arguments:
   -h, --help            show this help message and exit
+
+Experiment:
+  The experimental parameters
+
+  stereoParamFile       Stereo Calibration parameter file
+  dataDirectory         Needle Insertion Experiment directory
   --insertion-numbers INSERTION_NUMBERS [INSERTION_NUMBERS ...]
   --insertion-depths INSERTION_DEPTHS [INSERTION_DEPTHS ...]
                         The insertion depths of the needle to be parsed.
   --show-processed      Show the processed data
   --save                Save the processed data or not
   --force-overwrite     Overwrite previously processed data.
+
+Image Processing and Stereo:
+  The image processing and stereo vision parameters.
+
   --left-roi TOP_Y TOP_X BOTTOM_Y BOTTOM_X
                         The left image ROI to use
   --right-roi TOP_Y TOP_X BOTTOM_Y BOTTOM_X
@@ -72,6 +74,10 @@ optional arguments:
                         The blackout regions for the left image
   --right-blackout RIGHT_BLACKOUT [RIGHT_BLACKOUT ...]
                         The blackout regions for the right image
+  --left-contrast-enhance ALPHA BETA
+                        The left image contrast enhancement
+  --right-contrast-enhance ALPHA BETA
+                        The left image contrast enhancement
   --zoom ZOOM           The zoom for stereo template matching
   --window-size WIDTH HEIGHT
                         The window size for stereo template matching
@@ -79,11 +85,38 @@ optional arguments:
   --subtract-thresh SUBTRACT_THRESH
                         The threshold for reference image subtraction.
 
+Video:
+  Process needle shape of video images
+
+  --video               Process stereo videos
+
+ARUCO:
+  Process needle shape with ARUCO marker present
+
+  --aruco-id ARUCO_ID   The ARUCO ID to detect.
+  --aruco-size ARUCO_SIZE
+                        The size of the ARUCO side length (in mm)
+  --aruco-thresh ARUCO_THRESH
+                        The thresholding for ARUCO Image processing.
+  --aruco-contrast ALPHA BETA
+                        Aruco contrast enhancement
+  --aruco-left-roi TOP_Y TOP_X BOTTOM_Y BOTTOM_X
+                        Left image ARUCO ROI
+  --aruco-right-roi TOP_Y TOP_X BOTTOM_Y BOTTOM_X
+                        Right image ARUCO ROI
+  --aruco-left-blackout TOP_Y TOP_X BOTTOM_Y BOTTOM_X
+                        Left image ARUCO blackout regions
+  --aruco-right-blackout TOP_Y TOP_X BOTTOM_Y BOTTOM_X
+                        Right image ARUCO blackout regions
+
+                        The threshold for reference image subtraction.
+
 ```
 
 An example of this would be
 ```
 python needle_reconstruction.py --insertion-numbers 1 3 4 --insertion-depths 0 105 110 115 120 --save \
-                                --left-roi 50 60 -50 -60 --right-roi 30 40 -30 -40 --zoom 2.5 --window-size 201 51 \
+                                --left-roi 50 60 -50 -60 --right-roi 30 40 -30 -40 --left-contrast-enhance 1.5 0 --right-contrast-enhance 1.6 0 \
+                                --zoom 2.5 --window-size 201 51 \
                                 --alpha 0.6 --subtract-thresh 60 "path/to/stereo_parameters.mat" "path/to/data/directory"
 ```
