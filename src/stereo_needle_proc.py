@@ -157,9 +157,14 @@ def canny( left_img, right_img, lo_thresh=150, hi_thresh=200 ):
 # canny
 
 
-def centerline_from_contours( contours, len_thresh: int = -1, bspline_k: int = -1,
-                              outlier_thresh: float = -1, num_neighbors: int = -1,
-                              scale: tuple = (1, 1) ):
+def centerline_from_contours( 
+        contours, 
+        len_thresh: int = -1, 
+        bspline_k: int = -1,
+        outlier_thresh: float = -1, 
+        num_neighbors: int = -1,
+        scale: tuple = (1, 1)
+    ):
     """ This is to determine the centerline points from the contours using outlier detection
         and bspline smoothing
 
@@ -187,15 +192,16 @@ def centerline_from_contours( contours, len_thresh: int = -1, bspline_k: int = -
     contours_filt = [ c for c in contours if len( c ) >= len_thresh ]
 
     # numpy-tize points
-    pts = np.unique( np.vstack( contours_filt ).squeeze(), axis=0 ) * np.array( scale ).reshape( 1, 2 )
+    pts = np.unique( np.vstack( contours_filt ).squeeze(), axis=0 )
 
     # outlier detection
     if (outlier_thresh >= 0) and (num_neighbors > 0):
-        clf = LocalOutlierFactor( n_neighbors=num_neighbors, contamination='auto' )
-        clf.fit_predict( pts )
-        inliers = np.abs( -1 - clf.negative_outlier_factor_ ) < outlier_thresh
-
-        pts = pts[ inliers ]
+        pts, inliers = filter_outlier_points(
+            pts, 
+            outlier_thresh=outlier_thresh,
+            num_neighbors=num_neighbors,
+            scale=scale,
+        )
 
     # if: outlier detection
 
@@ -212,7 +218,7 @@ def centerline_from_contours( contours, len_thresh: int = -1, bspline_k: int = -
 
     # if: bspline
 
-    return pts / np.array( scale ).reshape( 1, 2 ), bspline
+    return pts, bspline
 
 
 # centerline from_contours
@@ -307,6 +313,35 @@ def contours( left_skel, right_skel ):
 
 # contours
 
+def filter_outlier_points(
+    pts: np.ndarray,
+    outlier_thresh: float,
+    num_neighbors: int = 5,
+    scale: tuple = None
+):
+    """ Filter outlier points
+    
+    
+    """
+    # outlier detection
+    if (outlier_thresh < 0):
+        raise ValueError(f"Outlier threshold must be > 0: {outlier_thresh} <= 0")
+    
+    if (num_neighbors < 0):
+        raise ValueError(f"Number of neighbors must be > 0: {num_neighbors} <= 0")
+
+    if scale is None:
+        scale = np.ones(pts.shape[1])
+
+    scaled_pts = pts * np.array(scale).reshape(1, -1)
+
+    clf = LocalOutlierFactor( n_neighbors=num_neighbors, contamination='auto' )
+    clf.fit_predict( scaled_pts )
+    inliers = np.abs( -1 - clf.negative_outlier_factor_ ) < outlier_thresh
+
+    return pts[ inliers ], inliers
+
+# filter_outlier_points
 
 def fit_parabola_img( img, pts, window: int, ransac_num_samples: int = 15, ransac_num_trials: int = 2000 ):
     """ Function to fit a parabola to an image and return its minimum coordinate"""
@@ -1304,12 +1339,24 @@ def needle_jig_reconstruction_refined( img_left, img_right, stereo_params,
 # needle_jig_reconstruction_refined
 
 
-def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref, stereo_params,
-                               bor_l=None, bor_r=None,
-                               roi_l=(), roi_r=(),
-                               alpha: float = 0.5, recalc_stereo: bool = True,
-                               zoom: float = 1.0, winsize: tuple = (31, 31),
-                               sub_thresh: int = 55, proc_show: bool = False ):
+def needle_reconstruction_ref(
+        left_img,
+        left_ref,
+        right_img,
+        right_ref,
+        stereo_params,
+        bor_l=None,
+        bor_r=None,
+        roi_l=(),
+        roi_r=(),
+        alpha: float = 0.5,
+        recalc_stereo: bool = True,
+        zoom: float = 1.0,
+        winsize: tuple = (31, 31),
+        sub_thresh: int = 55,
+        proc_show: bool = False,
+        **kwargs
+    ):
     """ This is a method to perform needle reconstruction on an image
         using a reference image prior to insertion for image subtraction
 
@@ -1324,34 +1371,34 @@ def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref, stereo_
     imgs_ret = { }
 
     # grayscale the images
-    left_gray = cv.cvtColor( left_img, cv.COLOR_BGR2GRAY )
-    right_gray = cv.cvtColor( right_img, cv.COLOR_BGR2GRAY )
-    left_ref_gray = cv.cvtColor( left_ref, cv.COLOR_BGR2GRAY )
+    left_gray      = cv.cvtColor( left_img, cv.COLOR_BGR2GRAY )
+    right_gray     = cv.cvtColor( right_img, cv.COLOR_BGR2GRAY )
+    left_ref_gray  = cv.cvtColor( left_ref, cv.COLOR_BGR2GRAY )
     right_ref_gray = cv.cvtColor( right_ref, cv.COLOR_BGR2GRAY )
 
     # segment each image
-    left_seg_init, left_sub = segment_needle_subtract( left_gray, left_ref_gray, threshold=sub_thresh )
+    left_seg_init, left_sub   = segment_needle_subtract( left_gray,  left_ref_gray,  threshold=sub_thresh )
     right_seg_init, right_sub = segment_needle_subtract( right_gray, right_ref_gray, threshold=sub_thresh )
-    imgs_ret[ 'sub' ] = imconcat( left_sub, right_sub, 125 )
+    imgs_ret[ 'sub' ]      = imconcat( left_sub, right_sub, 125 )
     imgs_ret[ 'seg-init' ] = imconcat( 255 * left_seg_init, 255 * right_seg_init, 125 )
 
-    left_seg_init_boroi = roi( blackout_regions( left_seg_init, bor_l ), roi_l, full=True )
+    left_seg_init_boroi  = roi( blackout_regions( left_seg_init, bor_l ), roi_l, full=True )
     right_seg_init_boroi = roi( blackout_regions( right_seg_init, bor_r ), roi_r, full=True )
 
     left_seg_init_boroi, right_seg_init_boroi = bin_close( left_seg_init_boroi, right_seg_init_boroi, ksize=(9, 5) )
 
     # - perform connected component analysis
-    num_cc_keep = 1
-    left_seg = connected_component_filtering( left_seg_init_boroi, N_keep=num_cc_keep ).astype( np.uint8 )
+    num_cc_keep = kwargs.get("num_cc_keep", 1)
+    left_seg  = connected_component_filtering( left_seg_init_boroi, N_keep=num_cc_keep ).astype( np.uint8 )
     right_seg = connected_component_filtering( right_seg_init_boroi, N_keep=num_cc_keep ).astype( np.uint8 )
     imgs_ret[ 'seg' ] = imconcat( 255 * left_seg, 255 * right_seg, 125 )
 
     # - roi the images
-    left_roi = roi( left_img, roi_l, full=True )
+    left_roi  = roi( left_img, roi_l, full=True )
     right_roi = roi( right_img, roi_r, full=True )
 
     # - black-out regions
-    left_roibo = blackout_regions( left_roi, bor_l )
+    left_roibo  = blackout_regions( left_roi, bor_l )
     right_roibo = blackout_regions( right_roi, bor_r )
     imgs_ret[ 'roibo' ] = imconcat( left_roibo, right_roibo, 125 )
 
@@ -1362,12 +1409,12 @@ def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref, stereo_
     imgs_ret[ 'rect-roi' ] = imconcat( left_rect, right_rect, [ 0, 0, 255 ] )
 
     # = apply stereo rectification map to full image
-    left_rect_full = cv.remap( left_img, map_l[ 0 ], map_l[ 1 ], cv.INTER_LINEAR )
+    left_rect_full  = cv.remap( left_img, map_l[ 0 ], map_l[ 1 ], cv.INTER_LINEAR )
     right_rect_full = cv.remap( right_img, map_r[ 0 ], map_r[ 1 ], cv.INTER_LINEAR )
     imgs_ret[ 'rect' ] = imconcat( left_rect_full, right_rect_full, [ 0, 0, 255 ] )
 
     # - apply stereo rectification map to segmented images
-    left_seg_rect = cv.remap( left_seg, map_l[ 0 ], map_l[ 1 ], cv.INTER_NEAREST )
+    left_seg_rect  = cv.remap( left_seg, map_l[ 0 ], map_l[ 1 ], cv.INTER_NEAREST )
     right_seg_rect = cv.remap( right_seg, map_r[ 0 ], map_r[ 1 ], cv.INTER_NEAREST )
     imgs_ret[ 'rect-seg' ] = imconcat( 255 * left_seg_rect, 255 * right_seg_rect, 125 )
 
@@ -1381,67 +1428,134 @@ def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref, stereo_
     imgs_ret[ 'boroi-bool-mapped' ] = imconcat( 255 * boroi_l_mapped, 255 * boroi_r_mapped, 125 )
 
     # = remove extra borders threshed out
-    left_seg_rect *= boroi_l_mapped.astype( np.uint8 )
+    left_seg_rect  *= boroi_l_mapped.astype( np.uint8 )
     right_seg_rect *= boroi_r_mapped.astype( np.uint8 )
     imgs_ret[ 'seg-rect-boroi' ] = imconcat( 255 * left_seg_rect, 255 * right_seg_rect, 125 )
 
     # get the image contours
     left_skel, right_skel = skeleton( left_seg_rect, right_seg_rect )
-    imgs_ret[ 'skel' ] = imconcat( 255 * left_skel, 255 * right_skel, 125 ).astype( np.uint8 )
-    conts_l, conts_r = contours( left_skel, right_skel )
+    imgs_ret[ 'skel' ]    = imconcat( 255 * left_skel, 255 * right_skel, 125 ).astype( np.uint8 )
+    conts_l, conts_r      = contours( left_skel, right_skel )
 
     # - outlier options
-    len_thresh = 5
-    bspl_k = 0
-    out_thresh = -1  # don't do outlier detection
-    n_neigh = 20
-    scale = (1, 1)
+    len_thresh      = 5
+    seg_bspl_k      = kwargs.get("segmentation_bspline_k", 0)
+    seg_out_thresh  = kwargs.get("segmentation_outlier_thresh", -1)  # Default: don't do outlier detection
+    seg_out_n_neigh = kwargs.get("segmentation_outlier_num_neighbors", 20)
+    seg_out_scale   = kwargs.get("segmentation_outlier_scale", (1, 1))
 
-    pts_l, bspline_l = centerline_from_contours( conts_l,
-                                                 len_thresh=len_thresh,
-                                                 bspline_k=bspl_k,
-                                                 outlier_thresh=out_thresh,
-                                                 num_neighbors=n_neigh, scale=scale )
+    pts_l, bspline_l = centerline_from_contours(
+        conts_l,
+        len_thresh=len_thresh,
+        bspline_k=seg_bspl_k,
+        outlier_thresh=seg_out_thresh,
+        num_neighbors=seg_out_n_neigh,
+        scale=seg_out_scale
+    )
 
-    pts_r, bspline_r = centerline_from_contours( conts_r,
-                                                 len_thresh=len_thresh,
-                                                 bspline_k=bspl_k,
-                                                 outlier_thresh=out_thresh,
-                                                 num_neighbors=n_neigh, scale=scale )
+    pts_r, bspline_r = centerline_from_contours(
+        conts_r,
+        len_thresh=len_thresh,
+        bspline_k=seg_bspl_k,
+        outlier_thresh=seg_out_thresh,
+        num_neighbors=seg_out_n_neigh,
+        scale=seg_out_scale
+    )
 
-    left_rect_draw = cv.polylines( left_rect_full.copy(), [ pts_l.reshape( -1, 1, 2 ).astype( np.int32 ) ], False,
-                                   (255, 0, 0), 3 )
-    right_rect_draw = cv.polylines( right_rect_full.copy(), [ pts_r.reshape( -1, 1, 2 ).astype( np.int32 ) ], False,
-                                    (255, 0, 0), 3 )
+    left_rect_draw  = cv.polylines(
+        left_rect_full.copy(),
+        [ pts_l.reshape( -1, 1, 2 ).astype( np.int32 ) ],
+        False,
+        (255, 0, 0),
+        3
+    )
+    right_rect_draw = cv.polylines(
+        right_rect_full.copy(),
+        [ pts_r.reshape( -1, 1, 2 ).astype( np.int32 ) ],
+        False,
+        (255, 0, 0),
+        3
+    )
     imgs_ret[ 'contours' ] = imconcat( left_rect_draw, right_rect_draw, [ 0, 0, 255 ] )
 
     # stereo matching
-    left_rect_gray = cv.cvtColor( left_rect_full, cv.COLOR_BGR2GRAY )
+    # - outlier threshold arguments
+    sm_use_roi      = kwargs.get( "stereomatch_use_roi", False )
+    sm_out_thresh   = kwargs.get( "stereomatch_outlier_thresh", -1 )  # Default: don't do outlier detection
+    sm_out_n_neigh  = kwargs.get( "stereomatch_outlier_num_neighbors", 20 )
+    sm_out_scale    = kwargs.get( "stereomatch_outlier_scale", (1, 1) )
+    tm_score_thresh = kwargs.get( "tm_score_thresh", 0.5 )
+    keep_last_match = kwargs.get( "stereomatch_keep_tip_match", True )
+
+    left_rect_gray  = cv.cvtColor( left_rect_full, cv.COLOR_BGR2GRAY )
     right_rect_gray = cv.cvtColor( right_rect_full, cv.COLOR_BGR2GRAY )
+
     al_l = np.linalg.norm( np.diff( pts_l, axis=0 ), axis=1 ).sum()
     al_r = np.linalg.norm( np.diff( pts_r, axis=0 ), axis=1 ).sum()
+
     if al_l >= al_r:  # take the max arclengths
-        pts_l_match, pts_r_match = stereomatch_normxcorr( pts_l, pts_r,
-                                                          left_rect_gray, right_rect_gray,
-                                                          winsize=winsize, zoom=zoom,
-                                                          score_thresh=0.5 )  # left search right
+        pts_l_match, pts_r_match = stereomatch_normxcorr(
+            pts_l, pts_r,
+            left_rect_gray, right_rect_gray,
+            roi_r_mask=boroi_r_mapped if sm_use_roi else None,
+            winsize=winsize,
+            zoom=zoom,
+            score_thresh=tm_score_thresh,
+            keep_last_match=keep_last_match,
+        )  # left search right
+
+        # filter outlier points
+        if sm_out_thresh > 0 and sm_out_n_neigh > 0:
+            _, inliers_match = filter_outlier_points(
+                pts_r_match,
+                outlier_thresh=sm_out_thresh,
+                num_neighbors=sm_out_n_neigh,
+                scale=sm_out_scale
+            )
+
+            inliers_match[-1] = inliers_match[-1] or keep_last_match
+            pts_l_match = pts_l_match[inliers_match]
+            pts_r_match = pts_r_match[inliers_match]
+
+        # if
     # if
 
     else:
-        pts_r_match, pts_l_match = stereomatch_normxcorr( pts_r, pts_l,
-                                                          right_rect_gray, left_rect_gray,
-                                                          winsize=winsize, zoom=zoom,
-                                                          score_thresh=0.5 )  # right search left
-    # else
+        pts_r_match, pts_l_match = stereomatch_normxcorr(
+            pts_r, pts_l,
+            right_rect_gray, left_rect_gray,
+            roi_r_mask=boroi_l_mapped if sm_use_roi else None,
+            winsize=winsize,
+            zoom=zoom,
+            score_thresh=tm_score_thresh,
+            keep_last_match=keep_last_match,
+        )  # right search left
+
+        # filter outlier points
+        if sm_out_thresh > 0 and sm_out_n_neigh > 0:
+            _, inliers_match = filter_outlier_points(
+                pts_l_match,
+                outlier_thresh=sm_out_thresh,
+                num_neighbors=sm_out_n_neigh,
+                scale=sm_out_scale
+            )
+
+            inliers_match[-1] = inliers_match[-1] or keep_last_match
+            pts_l_match = pts_l_match[inliers_match]
+            pts_r_match = pts_r_match[inliers_match]
+
+        # if
+    # 
 
     idx_l = np.argsort( pts_l_match[ :, 1 ] )
     pts_l_match = pts_l_match[ idx_l ]
     pts_r_match = pts_r_match[ idx_l ]
 
     # bspline fit the matching points
-    if bspl_k > 0 or True:
-        bspline_l_match = BSpline1D( pts_l_match[ :, 1 ], pts_l_match[ :, 0 ], k=2 )
-        bspline_r_match = BSpline1D( pts_r_match[ :, 1 ], pts_r_match[ :, 0 ], k=2 )
+    stereomatch_bspl_k = kwargs.get("stereomatch_bspline_k", -1)
+    if stereomatch_bspl_k > 0:
+        bspline_l_match = BSpline1D( pts_l_match[ :, 1 ], pts_l_match[ :, 0 ], k=stereomatch_bspl_k )
+        bspline_r_match = BSpline1D( pts_r_match[ :, 1 ], pts_r_match[ :, 0 ], k=stereomatch_bspl_k )
         s = np.linspace( 0, 1, 200 )
         pts_l_match = np.vstack( (bspline_l_match.eval_unscale( s ), bspline_l_match.unscale( s )) ).T  # (j, i)
         pts_r_match = np.vstack( (bspline_r_match.eval_unscale( s ), bspline_r_match.unscale( s )) ).T  # (j, i)
@@ -1449,12 +1563,20 @@ def needle_reconstruction_ref( left_img, left_ref, right_img, right_ref, stereo_
     # if
 
     # = add to images
-    left_rect_match_draw = cv.polylines( left_rect_full.copy(),
-                                         [ pts_l_match.reshape( -1, 1, 2 ).round().astype( np.int32 ) ], False,
-                                         (255, 0, 0), 3 )
-    right_rect_match_draw = cv.polylines( right_rect_full.copy(),
-                                          [ pts_r_match.reshape( -1, 1, 2 ).round().astype( np.int32 ) ], False,
-                                          (255, 0, 0), 3 )
+    left_rect_match_draw  = cv.polylines( 
+        left_rect_full.copy(),
+        [ pts_l_match.reshape( -1, 1, 2 ).round().astype( np.int32 ) ], 
+        False,
+        (255, 0, 0), 
+        3 
+    )
+    right_rect_match_draw = cv.polylines( 
+        right_rect_full.copy(),
+        [ pts_r_match.reshape( -1, 1, 2 ).round().astype( np.int32 ) ], 
+        False,
+        (255, 0, 0), 
+        3 
+    )
     imgs_ret[ 'contours-match' ] = imconcat( left_rect_match_draw, right_rect_match_draw, [ 0, 0, 255 ] )
 
     # stereo
@@ -1943,6 +2065,50 @@ def roi( img, roi_bnds, full: bool = True ):
 
 # roi
 
+def roi_around_point( point: Union[list, np.ndarray], width: int = None, height: int = None):
+    """ Creates an region of interest around a point (centerd in the ROI)"""
+    y, x = point[0], point[1]
+
+    img_roi = np.array([[0, 0], [-1, -1]])
+    if width is not None:
+        img_roi[0, 1] = max(0, x - width//2 - 1)
+        img_roi[1, 1] = x + width//2
+
+    # if: width 
+
+    if height is not None:
+        img_roi[0, 0] = max(0, y - height//2 - 1)
+        img_roi[1, 0] = y + height//2
+
+    # if: height
+
+    return img_roi
+
+# roi_around_point
+
+def roi_expand( roi: tuple, top: int = 0, bottom: int = 0, left: int = 0, right: int = 0 ):
+    """ Expands or contractrs a region of interest"""
+    tl_i, tl_j = roi[0]
+    br_i, br_j = roi[1]
+
+    tl_i = max(0, tl_i - top)
+    tl_j = max(0, tl_j - left)
+
+    if br_i < 0 and br_i + bottom > 0:
+        br_i = -1
+
+    else:
+        br_i += bottom
+
+    if br_j < 0 and br_j + right > 0:
+        br_j = -1
+
+    else:
+        br_j += right
+
+    return ((tl_i, tl_j), (br_i, br_j))
+
+# roi_expand
 
 def roi_mask( reg_of_int, image_size ):
     roi_bool = np.ones( image_size[ :2 ], dtype=bool )
@@ -1952,7 +2118,18 @@ def roi_mask( reg_of_int, image_size ):
     return roi_bool
 
 
-# roi_image
+# roi_mask
+
+def roi_bounds_from_mask( mask: np.ndarray ):
+    assert mask.ndim == 2, "Mask must be 2D"
+    img_pts = np.argwhere(mask > 0)
+
+    tl_i, tl_j = img_pts.min(axis=0)
+    br_i, br_j = img_pts.max(axis=0)
+
+    return ((tl_i, tl_j), (br_i, br_j))
+
+# roi_bounds_from_mask
 
 
 def segment_needle_subtract( img, ref_img, threshold ):
@@ -2190,9 +2367,16 @@ def stereomatch_needle( left_conts, right_conts, method="tip-count", col: int = 
 # stereomatch_needle
 
 
-def stereomatch_normxcorr( left_conts, right_conts, img_left, img_right,
-                           roi_l_mask=None, roi_r_mask=None, score_thresh=0.75,  # thresh=50,
-                           col: int = 1, zoom=1.0, winsize=(5, 5) ):
+def stereomatch_normxcorr( 
+        left_conts, right_conts, 
+        img_left, img_right,
+        roi_l_mask=None, roi_r_mask=None, 
+        score_thresh=0.75,
+        col: int = 1, 
+        zoom=1.0, 
+        winsize=(5, 5),
+        keep_last_match: bool = False,
+    ):
     """ stereo matching needle arclength points for the needle
 
         performs this using normxcorr along 'col'-axis
@@ -2257,29 +2441,70 @@ def stereomatch_normxcorr( left_conts, right_conts, img_left, img_right,
 
     # else
 
+    # update window size
+    new_winsize = tuple( [ round( zoom * win ) for win in winsize ] )
+    new_winsize = tuple( [ win if win % 2 == 1 else win + 1 for win in new_winsize ] )
+
     # pad the images with winsize and zoom
-    left_pad = np.pad( img_left, ((winsize[ 0 ] // 2, winsize[ 0 ] // 2), (winsize[ 1 ] // 2, winsize[ 1 ] // 2)) )
-    right_pad = np.pad( img_right, ((winsize[ 0 ] // 2, winsize[ 0 ] // 2), (winsize[ 1 ] // 2, winsize[ 1 ] // 2)) )
-    left_zoom = cv.resize( left_pad, None, fx=zoom, fy=zoom, interpolation=cv.INTER_CUBIC )
-    right_zoom = cv.resize( right_pad, None, fx=zoom, fy=zoom, interpolation=cv.INTER_CUBIC )
+    left_pad   = np.pad( img_left,  ((winsize[ 0 ] // 2, winsize[ 0 ] // 2), (winsize[ 1 ] // 2, winsize[ 1 ] // 2)) )
+    right_pad  = np.pad( img_right, ((winsize[ 0 ] // 2, winsize[ 0 ] // 2), (winsize[ 1 ] // 2, winsize[ 1 ] // 2)) )
+    
+    left_mask = None
+    if roi_l_mask is not None:
+        left_mask  = np.pad( roi_l_mask, ((winsize[ 0 ] // 2, winsize[ 0 ] // 2), (winsize[ 1 ] // 2, winsize[ 1 ] // 2)) )
+
+    right_mask = None
+    if roi_r_mask is not None:
+        right_mask = np.pad( roi_r_mask, ((winsize[ 0 ] // 2, winsize[ 0 ] // 2), (winsize[ 1 ] // 2, winsize[ 1 ] // 2)) )
+    
+    left_zoom  = cv.resize( left_pad,   None, fx=zoom, fy=zoom, interpolation=cv.INTER_CUBIC )
+    right_zoom = cv.resize( right_pad,  None, fx=zoom, fy=zoom, interpolation=cv.INTER_CUBIC )
+
+    left_mask_zoom = None
+    if roi_l_mask is not None:
+        left_mask_zoom  = cv.resize( roi_l_mask,  None, fx=zoom, fy=zoom, interpolation=cv.INTER_NEAREST )
+
+    right_mask_zoom = None
+    roi_right       = None
+    right_zoom_roi  = right_zoom
+    if right_mask is not None:
+        right_mask_zoom = cv.resize( right_mask, None, fx=zoom, fy=zoom, interpolation=cv.INTER_NEAREST )
+        roi_right       = roi_bounds_from_mask( right_mask_zoom )
+        roi_right       = roi_expand(
+            roi_right, 
+            top=new_winsize[0],
+            bottom=new_winsize[0],
+            left=new_winsize[1]//2 + 1,
+            right=new_winsize[1]//2 + 1,
+        )
+        right_zoom_roi  = roi(right_zoom, roi_right, full=False)
+        bottom_val = np.max(zoom * left_conts, axis=0).round()[1] + new_winsize[0]
+        if right_zoom_roi.shape[0] < bottom_val:
+            # FIXME: pad roi_right if outside of window bounds with left contours
+            roi_right = roi_expand(
+                roi_right,
+                bottom=int(bottom_val - right_zoom_roi.shape[0])
+            )
+            right_zoom_roi = roi(right_zoom, roi_right, full=False)
+
+        # if
+    # if
 
     # remove duplicate rows
     pts_l = np.unique( left_conts, axis=0 )
     pts_r = np.unique( right_conts, axis=0 )
 
     # ================= helper function ====================================
-    def normxcorr1( template, img, row ):
+    def normxcorr1( template, img, row, mask=None ):
         """ returns the best match in a line along a specific row index"""
         # unpack template shape
         t_0, t_1 = template.shape
 
         # get the search image
-        # # handle edge cases
-        img_roi = np.array( [ [ row - t_0 // 2, 0 ], [ row + t_0 // 2 + 1, -1 ] ] )
-        img_roi[ img_roi[ :, 0 ] < 0, 0 ] = 0
+        img_roi = roi_around_point([row, 0], height=t_0)
         img_search = roi( img, img_roi, full=False )
 
-        res = cv.matchTemplate( img_search, template, cv.TM_CCOEFF_NORMED )
+        res = cv.matchTemplate( img_search, template, cv.TM_CCOEFF_NORMED, mask=mask )
 
         min_val, max_val, min_loc, max_loc = cv.minMaxLoc( res )
 
@@ -2290,36 +2515,64 @@ def stereomatch_normxcorr( left_conts, right_conts, img_left, img_right,
     # = def: normxcorr1 ====================================================
 
     # match points left-to-right
-    new_winsize = tuple( [ round( zoom * win ) for win in winsize ] )
-    new_winsize = tuple( [ win if win % 2 == 1 else win + 1 for win in new_winsize ] )
-    left_matches = np.zeros( (0, 2) )
+    left_matches  = np.zeros( (0, 2) )
     right_matches = np.zeros( (0, 2) )
     for i in range( pts_l.shape[ 0 ] ):
         # grab the template
         px_pt = np.flip( zoom * pts_l[ i ] ).round().astype( np.int32 ) + np.array( new_winsize ) // 2
 
-        img_roi = np.vstack( (-np.array( new_winsize ) // 2, np.array( new_winsize ) // 2) ) + px_pt.reshape( 1,
-                                                                                                              -1 ).tolist()
-        img_roi[ img_roi < 0 ] = 0
+        img_roi = roi_around_point(
+            px_pt, 
+            height=new_winsize[0],
+            width=new_winsize[1], 
+        )
 
-        template = roi( left_zoom, img_roi, full=False )
+        template      = roi( left_zoom, img_roi, full=False )
+        template_mask = None
+        if left_mask_zoom is not None:
+            template_mask = roi( left_mask_zoom, img_roi, full=False )
+
+        # if q
 
         if template.shape[ 0 ] % 2 == 0:
-            template = template[ :-1, : ]
-
-        if template.shape[ 1 ] % 2 == 0:
-            template = template[ :, :-1 ]
-
-        match_pt, score = normxcorr1( template, right_zoom, px_pt[ 0 ] )
-        if score > score_thresh:
-            left_matches = np.append( left_matches, np.reshape( px_pt - np.array( new_winsize ) // 2, (1, 2) ), axis=0 )
-            right_matches = np.append( right_matches, np.reshape( match_pt - np.array( new_winsize ) // 2, (1, 2) ),
-                                       axis=0 )
+            template      = template[ :-1, : ]
+            if template_mask is not None:
+                template_mask = template_mask[ :-1, : ]
 
             # if
-    # for
+        # if
 
-    return np.flip( left_matches, axis=1 ) / zoom, np.flip( right_matches, axis=1 ) / zoom  # when using px_pt
+        if template.shape[ 1 ] % 2 == 0:
+            template      = template[ :, :-1 ]
+            if template_mask is not None:
+                template_mask = template_mask[ :, :-1 ]
+
+            # if
+        # if
+
+        match_pt, score = normxcorr1( template, right_zoom_roi, px_pt[ 0 ], mask=template_mask )
+        if roi_right is not None:
+            match_pt += [0, 1]*np.array(roi_right[0])
+        if (
+            (score > score_thresh)
+            or (keep_last_match and (i == pts_l.shape[0]))
+        ):
+            left_matches = np.append( 
+                left_matches, 
+                np.reshape( px_pt - np.array( new_winsize ) // 2, (1, 2) ), 
+                axis=0
+            )
+            right_matches = np.append( 
+                right_matches, 
+                np.reshape( match_pt - np.array( new_winsize ) // 2, (1, 2) ),
+                axis=0,
+            )
+
+        # if
+    # for
+    left_matches  = np.flip( left_matches,  axis=1 ) / zoom
+    right_matches = np.flip( right_matches, axis=1 ) / zoom
+    return left_matches, right_matches
 
 
 # stereomatch_normxcorr

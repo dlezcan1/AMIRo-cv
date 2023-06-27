@@ -1,3 +1,4 @@
+import sys
 from needle_segmentation_functions import *
 import os
 import cv2
@@ -52,9 +53,7 @@ for file in []:#os.listdir( directory ):
 
 # pick out a particular file
 if True:
-    directory += "Validation\\Sanity_Check\\01-03-20_11-23/"
-    directory = "..\\Test Images\\stereo_needle\\needle_examples/"
-    file = directory + "right-0001.png"
+    file = sys.argv[1]
     img = cv2.imread( file, cv2.IMREAD_GRAYSCALE )
 #     ROI = [84, 250, 1280, 715]  # x_t-left, y_t-left, x_b-right, y_b-right
 # #     img = imgp.set_ROI(img, crop_area)

@@ -81,6 +81,9 @@ def find_coordinate_image( img, param = {} ):
             print( 75 * '=', end = '\n\n' )
             
         # elif
+
+        elif event == cv2.EVENT_RBUTTONDOWN:
+            print("Points:", pts)
                 
     # mouse_cb
     

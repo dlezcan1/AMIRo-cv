@@ -127,8 +127,11 @@ class StereoRefInsertionExperiment:
         # if
 
         # configure the dataset
-        self.dataset, self.processed_data = self.configure_dataset( self.data_directory, self.insertion_depths,
-                                                                    self.insertion_numbers )
+        self.dataset, self.processed_data = self.configure_dataset(
+            self.data_directory,
+            self.insertion_depths,
+            self.insertion_numbers
+        )
 
     # __init__
 
@@ -151,7 +154,7 @@ class StereoRefInsertionExperiment:
     # stereo_params
 
     @classmethod
-    def configure_dataset( cls, directory: str, insertion_depths: list, insertion_numbers: list ) -> (list, list):
+    def configure_dataset( cls, directory: str, insertion_depths: list, insertion_numbers: list ):
         """
             Configure a dataset based on the directory:
 
@@ -176,7 +179,7 @@ class StereoRefInsertionExperiment:
 
             if res is not None:
                 insertion_num, insertion_depth = res.groups()
-                insertion_num = int( insertion_num )
+                insertion_num   = int( insertion_num )
                 insertion_depth = float( insertion_depth )
 
                 # only include insertion depths that we want to process
@@ -227,8 +230,12 @@ class StereoRefInsertionExperiment:
                 list( filter( lambda data: (data[ 1 ] == insertion_hole) and (data[ 2 ] == 0), dataset ) )[ 0 ]
 
             # load the reference images
-            left_ref_file = os.path.join( dataset_hole_ref[ 0 ], 'left.png' )
+            left_ref_file  = os.path.join( dataset_hole_ref[ 0 ], 'left.png' )
             right_ref_file = os.path.join( dataset_hole_ref[ 0 ], 'right.png' )
+            if not os.path.isfile(left_ref_file):
+                continue
+            if not os.path.isfile(right_ref_file):
+                continue
             self.needle_reconstructor.load_image_pair( left_ref_file, right_ref_file, reference=True )
 
             # iterate over the datasets
@@ -248,8 +255,12 @@ class StereoRefInsertionExperiment:
                 # if
 
                 print( f"Processing dataset: {d}" )
+                try:
+                    proc_dataset = self.process_trial( sub_dataset, save=save, **kwargs )
 
-                proc_dataset = self.process_trial( sub_dataset, save=save, **kwargs )
+                except FileNotFoundError as e:
+                    print( f"Skipping dataset: {d}")
+                    continue
 
                 # show the processed images
                 if proc_show:
@@ -283,8 +294,14 @@ class StereoRefInsertionExperiment:
         directory, insertion_hole, insertion_depth = dataset  # unpack the dataset
 
         # load the next image pair
-        left_file = os.path.join( directory, 'left.png' )
+        left_file  = os.path.join( directory, 'left.png' )
         right_file = os.path.join( directory, 'right.png' )
+        if not os.path.isfile(left_file):
+            raise FileNotFoundError(f"{left_file} does not exist!")
+        
+        if not os.path.isfile(right_file):
+            raise FileNotFoundError(f"{right_file} does not exist!")
+        
         self.needle_reconstructor.load_image_pair( left_file, right_file, reference=False )
 
         # perform the 3D reconstruction
@@ -306,7 +323,7 @@ class StereoRefInsertionExperiment:
 
 class StereoRefInsertionExperimentARUCO( StereoRefInsertionExperiment ):
     aruco_dictionary = cv.aruco.getPredefinedDictionary( cv.aruco.DICT_4X4_50 )  # dictionary of aruco markers
-    aruco_parameters = cv.aruco.DetectorParameters_create()
+    aruco_parameters = cv.aruco.DetectorParameters()
     aruco_pose_outfile = "left-right_aruco-poses.csv"
     aruco_detect_imgfile = "left-right_rect-aruco.png"
     aruco_imgproc_imgfile = "left-right_rect-aruco-img-proc.png"
@@ -598,8 +615,7 @@ class StereoRefInsertionExperimentVideo( StereoRefInsertionExperiment ):
     # __init__
 
     @classmethod
-    def configure_video_data( cls, directory: str, insertion_depths: list, insertion_numbers: list ) -> (
-            StereoPair, list):
+    def configure_video_data( cls, directory: str, insertion_depths: list, insertion_numbers: list ):
         video_dataset = ()
         frame_numbers = [ ]
 
@@ -922,31 +938,81 @@ class StereoNeedleRefReconstruction( StereoNeedleReconstruction ):
 
         """
         # keyword argument parsing
-        window_size = kwargs.get( 'window_size', (201, 51) )
-        zoom = kwargs.get( 'zoom', 1.0 )
-        alpha = kwargs.get( 'alpha', 0.6 )
-        sub_thresh = kwargs.get( 'sub_thresh', 60 )
-        proc_show = kwargs.get( 'proc_show', False )
+        window_size                = kwargs.get( 'window_size', (201, 51) )
+        zoom                       = kwargs.get( 'zoom', 1.0 )
+        alpha                      = kwargs.get( 'alpha', 0.6 )
+        sub_thresh                 = kwargs.get( 'sub_thresh', 60 )
+        proc_show                  = kwargs.get( 'proc_show', False )
+
+        segment_num_cc_keep           = kwargs.get( "segmentation_num_cc_keep", 0.5 )
+        segment_outlier_thresh        = kwargs.get( "segmentation_outlier_thresh", -1 )
+        segment_outlier_scale         = kwargs.get( "segmentation_outlier_scale", (1, 1))
+        segment_bspl_k                = kwargs.get( "segmentation_bspline_k", -1 )
+        segment_outlier_num_neighbors = kwargs.get("segmentation_outlier_num_neighbors",20)
+
+        stereomatch_bspl_k                = kwargs.get( "stereomatch_bspline_k", -1 )
+        stereomatch_tmscore_thresh        = kwargs.get( "stereomatch_tmscore_thresh", 0.5 )
+        stereomatch_outlier_thresh        = kwargs.get( "stereomatch_outlier_thresh", -1 )
+        stereomatch_outlier_scale         = kwargs.get( "stereomatch_outlier_scale", (1, 1) )
+        stereomatch_bspl_k                = kwargs.get( "stereomatch_bspline_k", -1 )
+        stereomatch_use_roi               = kwargs.get( "stereomatch_use_roi", False )
+        stereomatch_outlier_num_neighbors = kwargs.get( "stereomatch_outlier_num_neighbors",20 )
 
         # perform contrast enhancement
-        ref_left = self.contrast_enhance( self.reference.left, self.contrast.left[ 0 ],
-                                          self.contrast.left[ 0 ] ).astype( np.uint8 )
-        img_left = self.contrast_enhance( self.image.left, self.contrast.left[ 0 ],
-                                          self.contrast.left[ 1 ] ).astype( np.uint8 )
-        ref_right = self.contrast_enhance( self.reference.right, self.contrast.right[ 0 ],
-                                           self.contrast.left[ 0 ] ).astype( np.uint8 )
-        img_right = self.contrast_enhance( self.image.right, self.contrast.right[ 0 ],
-                                           self.contrast.right[ 1 ] ).astype( np.uint8 )
+        ref_left = self.contrast_enhance(
+            self.reference.left,
+            self.contrast.left[ 0 ],
+            self.contrast.left[ 1 ]
+        ).astype( np.uint8 )
+        img_left = self.contrast_enhance(
+            self.image.left,
+            self.contrast.left[ 0 ],
+            self.contrast.left[ 1 ]
+        ).astype( np.uint8 )
+        ref_right = self.contrast_enhance(
+            self.reference.right,
+            self.contrast.right[ 0 ],
+            self.contrast.right[ 1 ]
+        ).astype( np.uint8 )
+        img_right = self.contrast_enhance(
+            self.image.right,
+            self.contrast.right[ 0 ],
+            self.contrast.right[ 1 ]
+        ).astype( np.uint8 )
 
         # perform stereo reconstruction
         pts_3d, pts_l, pts_r, bspline_l, bspline_r, imgs, figs = \
-            stereo_needle.needle_reconstruction_ref( img_left, ref_left,
-                                                     img_right, ref_right,
-                                                     stereo_params=self.stereo_params, recalc_stereo=True,
-                                                     bor_l=self.blackout.left, bor_r=self.blackout.right,
-                                                     roi_l=self.roi.left, roi_r=self.roi.right,
-                                                     alpha=alpha, winsize=window_size, zoom=zoom,
-                                                     sub_thresh=sub_thresh, proc_show=proc_show )
+            stereo_needle.needle_reconstruction_ref(
+                img_left, ref_left,
+                img_right, ref_right,
+
+                stereo_params=self.stereo_params,
+                recalc_stereo=True,
+                proc_show=proc_show,
+
+                bor_l=self.blackout.left, bor_r=self.blackout.right,
+                roi_l=self.roi.left, roi_r=self.roi.right,
+
+                alpha=alpha,
+                winsize=window_size,
+                zoom=zoom,
+
+                sub_thresh=sub_thresh,
+                num_cc_keep=segment_num_cc_keep,
+
+                segmentation_bspline_k=segment_bspl_k,
+                segmentation_outlier_thresh=segment_outlier_thresh,
+                segmentation_outlier_scale=segment_outlier_scale,
+                segmentation_outlier_num_neighbors=segment_outlier_num_neighbors,
+
+                stereomatch_bspline_k=stereomatch_bspl_k,
+                stereomatch_outlier_thresh=stereomatch_outlier_thresh,
+                stereomatch_outlier_scale=stereomatch_outlier_scale,
+                stereomatch_outlier_num_neighbors=stereomatch_outlier_num_neighbors,
+                stereomatch_use_roi=stereomatch_use_roi,
+
+                tm_score_thresh=stereomatch_tmscore_thresh,
+        )
         # set the current fields
         self.needle_shape = pts_3d[ :, 0:3 ]  # remove 4-th axis
 
@@ -975,7 +1041,7 @@ def __get_parser() -> argparse.ArgumentParser:
     expmt_group = parser.add_argument_group( 'Experiment', 'The experimental parameters' )
     expmt_group.add_argument( 'stereoParamFile', type=str, help='Stereo Calibration parameter file' )
 
-    # data directory 
+    # data directory
     expmt_group.add_argument( 'dataDirectory', type=str, help='Needle Insertion Experiment directory' )
     expmt_group.add_argument( '--insertion-numbers', type=int, nargs='+', default=None )
     expmt_group.add_argument( '--insertion-depths', type=float, nargs='+', default=None,
@@ -985,31 +1051,152 @@ def __get_parser() -> argparse.ArgumentParser:
     expmt_group.add_argument( '--force-overwrite', action='store_true', help='Overwrite previously processed data.' )
 
     # image region of interestes
-    imgproc_group = parser.add_argument_group( 'Image Processing and Stereo',
-                                               'The image processing and stereo vision parameters.' )
-    imgproc_group.add_argument( '--left-roi', nargs=4, type=int, default=[ ], help='The left image ROI to use',
-                                metavar=('TOP_Y', 'TOP_X', 'BOTTOM_Y', 'BOTTOM_X') )
-    imgproc_group.add_argument( '--right-roi', nargs=4, type=int, default=[ ], help='The right image ROI to use',
-                                metavar=('TOP_Y', 'TOP_X', 'BOTTOM_Y', 'BOTTOM_X') )
+    imgproc_group = parser.add_argument_group(
+        'Image Processing and Stereo',
+        'The image processing and stereo vision parameters.'
+    )
+    imgproc_group.add_argument(
+        '--left-roi',
+        nargs=4,
+        type=int,
+        default=[ ],
+        help='The left image ROI to use',
+        metavar=('TOP_Y', 'TOP_X', 'BOTTOM_Y', 'BOTTOM_X')
+    )
+    imgproc_group.add_argument(
+        '--right-roi',
+        nargs=4,
+        type=int,
+        default=[ ],
+        help='The right image ROI to use',
+        metavar=('TOP_Y', 'TOP_X', 'BOTTOM_Y', 'BOTTOM_X')
+    )
 
-    imgproc_group.add_argument( '--left-blackout', nargs='+', type=int, default=[ ],
-                                help='The blackout regions for the left image' )
-    imgproc_group.add_argument( '--right-blackout', nargs='+', type=int, default=[ ],
-                                help='The blackout regions for the right image' )
+    imgproc_group.add_argument(
+        '--left-blackout',
+        nargs='+',
+        type=int,
+        default=[ ],
+        help='The blackout regions for the left image'
+    )
+    imgproc_group.add_argument(
+        '--right-blackout',
+        nargs='+',
+        type=int,
+        default=[ ],
+        help='The blackout regions for the right image'
+    )
 
-    imgproc_group.add_argument( '--left-contrast-enhance', nargs=2, type=float, default=[ ],
-                                help='The left image contrast enhancement', metavar=('ALPHA', 'BETA') )
-    imgproc_group.add_argument( '--right-contrast-enhance', nargs=2, type=float, default=[ ],
-                                help='The left image contrast enhancement', metavar=('ALPHA', 'BETA') )
+    imgproc_group.add_argument(
+        '--left-contrast-enhance',
+        nargs=2,
+        type=float,
+        default=[ ],
+        help='The left image contrast enhancement',
+        metavar=('ALPHA', 'BETA')
+    )
+    imgproc_group.add_argument(
+        '--right-contrast-enhance',
+        nargs=2,
+        type=float,
+        default=[ ],
+        help='The left image contrast enhancement',
+        metavar=('ALPHA', 'BETA')
+    )
 
     # reconstruction parameters
     imgproc_group.add_argument( '--zoom', type=float, default=1.0, help="The zoom for stereo template matching" )
-    imgproc_group.add_argument( '--window-size', type=int, nargs=2, default=(201, 51), metavar=('WIDTH', 'HEIGHT'),
-                                help='The window size for stereo template matching' )
-    imgproc_group.add_argument( '--alpha', type=float, default=0.6,
-                                help='The alpha parameter for stereo rectification.' )
-    imgproc_group.add_argument( '--subtract-thresh', type=float, default=60,
-                                help='The threshold for reference image subtraction.' )
+    imgproc_group.add_argument(
+        '--window-size',
+        type=int,
+        nargs=2,
+        default=(201, 51),
+        metavar=('WIDTH', 'HEIGHT'),
+        help='The window size for stereo template matching'
+    )
+    imgproc_group.add_argument(
+        '--alpha',
+        type=float,
+        default=0.6,
+        help='The alpha parameter for stereo rectification.'
+    )
+    imgproc_group.add_argument(
+        '--subtract-thresh',
+        type=float,
+        default=60,
+        help='The threshold for reference image subtraction.'
+    )
+
+    imgproc_group.add_argument(
+        "--segmentation-num-connected-components-keep",
+        type=int,
+        default=1,
+        help="The number of connected components to keep when performing binary segmentation",
+    )
+    imgproc_group.add_argument(
+        "--segmentation-outlier-thresh",
+        type=float,
+        default=-1,
+        help="Value for thresholding binary outliers for segmentation (Default = no outlier detection)",
+    )
+    imgproc_group.add_argument(
+        "--segmentation-outlier-num-neighbors",
+        type=int,
+        default=20,
+        help="Value for number of neighbors used for needle segmentation outlier detection",
+    )
+    imgproc_group.add_argument(
+        "--segmentation-outlier-scale",
+        type=float,
+        nargs=2,
+        default=(1, 1),
+        metavar=["SCALE_X", "SCALE_Y"],
+        help='The outlier scale to increase sensitivity along a specified direction ( > 1 -> more sensitivity )'
+    )
+    imgproc_group.add_argument(
+        "--segmentation-bspline-order",
+        type=int,
+        default=-1,
+        help="The bspline order for which to use for segmenetation interpolation (Default = no interpolation)",
+    )
+
+    imgproc_group.add_argument(
+        "--stereomatch-bspline-order",
+        type=int,
+        default=-1,
+        help="The bspline order for which to use for stereo-matched interpolation (Default = no interpolation)",
+    )
+    imgproc_group.add_argument(
+        "--stereomatch-tm-score-thresh",
+        type=float,
+        default=0.5,
+        help="The threshold for the minimum score for template matching. Rejects matches with scores less than this",
+    )
+    imgproc_group.add_argument(
+        "--stereomatch-outlier-thresh",
+        type=float,
+        default=-1,
+        help="Value for thresholding binary outliers for segmentation (Default = no outlier detection)",
+    )
+    imgproc_group.add_argument(
+        "--stereomatch-outlier-num-neighbors",
+        type=int,
+        default=20,
+        help="Value for number of neighbors used for stereo-match outlier detection",
+    )
+    imgproc_group.add_argument(
+        "--stereomatch-outlier-scale",
+        nargs=2,
+        type=float,
+        default=(1, 1),
+        metavar=["SCALE_X", "SCALE_Y"],
+        help='The outlier scale to increase sensitivity along a specified direction ( > 1 -> more sensitivity )'
+    )
+    imgproc_group.add_argument(
+        "--stereomatch-use-roi",
+        action='store_true',
+        help="Whether to use the ROI for stereo matching or not"
+    )
 
     # video processing
     video_group = parser.add_argument_group( 'Video', 'Process needle shape of video images' )
@@ -1018,25 +1205,61 @@ def __get_parser() -> argparse.ArgumentParser:
     # aruco processing
     aruco_group = parser.add_argument_group( 'ARUCO', 'Process needle shape with ARUCO marker present' )
     aruco_group.add_argument( '--aruco-id', type=int, default=None, help="The ARUCO ID to detect." )
-    aruco_group.add_argument( '--aruco-size', type=float, default=None,
-                              help="The size of the ARUCO side length (in mm)" )
+    aruco_group.add_argument(
+        '--aruco-size',
+        type=float,
+        default=None,
+        help="The size of the ARUCO side length (in mm)"
+    )
 
-    aruco_group.add_argument( '--aruco-thresh', type=int, default=50,
-                              help="The thresholding for ARUCO Image processing." )
-    aruco_group.add_argument( '--aruco-contrast', nargs=2, type=float, default=[ 1, 0 ],
-                              help="Aruco contrast enhancement", metavar=('ALPHA', 'BETA') )
+    aruco_group.add_argument(
+        '--aruco-thresh',
+        type=int,
+        default=50,
+        help="The thresholding for ARUCO Image processing."
+    )
+    aruco_group.add_argument(
+         '--aruco-contrast',
+         nargs=2,
+         type=float,
+         default=[ 1, 0 ],
+        help="Aruco contrast enhancement",
+        metavar=('ALPHA', 'BETA')
+    )
 
-    aruco_group.add_argument( '--aruco-left-roi', nargs=4, type=int, default=None, help='Left image ARUCO ROI',
-                              metavar=('TOP_Y', 'TOP_X', 'BOTTOM_Y', 'BOTTOM_X') )
-    aruco_group.add_argument( '--aruco-right-roi', nargs=4, type=int, default=None, help='Right image ARUCO ROI',
-                              metavar=('TOP_Y', 'TOP_X', 'BOTTOM_Y', 'BOTTOM_X') )
+    aruco_group.add_argument(
+        '--aruco-left-roi',
+        nargs=4,
+        type=int,
+        default=None,
+        help='Left image ARUCO ROI',
+        metavar=('TOP_Y', 'TOP_X', 'BOTTOM_Y', 'BOTTOM_X')
+    )
+    aruco_group.add_argument(
+        '--aruco-right-roi',
+        nargs=4,
+        type=int,
+        default=None,
+        help='Right image ARUCO ROI',
+        metavar=('TOP_Y', 'TOP_X', 'BOTTOM_Y', 'BOTTOM_X')
+    )
 
-    aruco_group.add_argument( '--aruco-left-blackout', nargs=4, type=int, default=None,
-                              help='Left image ARUCO blackout regions',
-                              metavar=('TOP_Y', 'TOP_X', 'BOTTOM_Y', 'BOTTOM_X') )
-    aruco_group.add_argument( '--aruco-right-blackout', nargs=4, type=int, default=None,
-                              help='Right image ARUCO blackout regions',
-                              metavar=('TOP_Y', 'TOP_X', 'BOTTOM_Y', 'BOTTOM_X') )
+    aruco_group.add_argument(
+        '--aruco-left-blackout',
+        nargs=4,
+        type=int,
+        default=None,
+        help='Left image ARUCO blackout regions',
+        metavar=('TOP_Y', 'TOP_X', 'BOTTOM_Y', 'BOTTOM_X')
+    )
+    aruco_group.add_argument(
+        '--aruco-right-blackout',
+        nargs=4,
+        type=int,
+        default=None,
+        help='Right image ARUCO blackout regions',
+        metavar=('TOP_Y', 'TOP_X', 'BOTTOM_Y', 'BOTTOM_X')
+    )
 
     return parser
 
@@ -1072,8 +1295,10 @@ def main( args=None ):
         assert (len( pargs.left_blackout ) % 4 == 0)  # check if there are adequate pairs
         left_blackout = [ ]
         for i in range( 0, len( pargs.left_blackout ), 4 ):
-            left_blackout.append( [ pargs.left_blackout[ i:i + 2 ],
-                                    pargs.left_blackout[ i + 2:i + 4 ] ] )
+            left_blackout.append( [
+                pargs.left_blackout[ i:i + 2 ],
+                pargs.left_blackout[ i + 2:i + 4 ]
+            ] )
 
         # for
 
@@ -1087,8 +1312,10 @@ def main( args=None ):
         assert (len( pargs.right_blackout ) % 4 == 0)  # check if there are adequate pairs
         right_blackout = [ ]
         for i in range( 0, len( pargs.right_blackout ), 4 ):
-            right_blackout.append( [ pargs.right_blackout[ i:i + 2 ],
-                                     pargs.right_blackout[ i + 2:i + 4 ] ] )
+            right_blackout.append( [
+                pargs.right_blackout[ i:i + 2 ],
+                pargs.right_blackout[ i + 2:i + 4 ]
+            ] )
 
         # for
 
@@ -1099,50 +1326,84 @@ def main( args=None ):
     # else
 
     # contrast enhancement
-    left_contrast = tuple( pargs.left_contrast_enhance ) if len( pargs.left_contrast_enhance ) > 0 else None
-    right_contrast = tuple( pargs.right_contrast_enhance ) if len( pargs.right_contrast_enhance ) > 0 else None
+    left_contrast  = (
+        tuple( pargs.left_contrast_enhance )
+        if len( pargs.left_contrast_enhance ) > 0 else
+        None
+    )
+    right_contrast = (
+        tuple( pargs.right_contrast_enhance )
+        if len( pargs.right_contrast_enhance ) > 0 else
+        None
+    )
 
     # instantiate the Insertion Experiment data processor
     # process the dataset
-    stereo_kwargs = { 'zoom'                : pargs.zoom,
-                      'window_size'         : pargs.window_size,
-                      'alpha'               : pargs.alpha,
-                      'sub_thresh'          : pargs.subtract_thresh,
-                      'proc_show'           : pargs.show_processed,
-                      'aruco_left_roi'      : pargs.aruco_left_roi,
-                      'aruco_left_blackout' : pargs.aruco_left_blackout,
-                      'aruco_right_roi'     : pargs.aruco_right_roi,
-                      'aruco_right_blackout': pargs.aruco_right_blackout,
-                      'aruco_threshold'     : pargs.aruco_thresh,
-                      'aruco_contrast_alpha': pargs.aruco_contrast[ 0 ],
-                      'aruco_contrast_beta' : pargs.aruco_contrast[ 1 ]
-                      }
+    stereo_kwargs = {
+        'proc_show' : pargs.show_processed,
+
+        'zoom'        : pargs.zoom,
+        'window_size' : pargs.window_size,
+        'alpha'       : pargs.alpha,
+        'sub_thresh'  : pargs.subtract_thresh,
+
+        'aruco_left_roi'       : pargs.aruco_left_roi,
+        'aruco_left_blackout'  : pargs.aruco_left_blackout,
+        'aruco_right_roi'      : pargs.aruco_right_roi,
+        'aruco_right_blackout' : pargs.aruco_right_blackout,
+        'aruco_threshold'      : pargs.aruco_thresh,
+        'aruco_contrast_alpha' : pargs.aruco_contrast[ 0 ],
+        'aruco_contrast_beta'  : pargs.aruco_contrast[ 1 ],
+
+        "segmentation_num_cc_keep"           : pargs.segmentation_num_connected_components_keep,
+        "segmentation_outlier_thresh"        : pargs.segmentation_outlier_thresh,
+        "segmentation_outlier_scale"         : pargs.segmentation_outlier_scale,
+        "segmentation_outlier_num_neighbors" : pargs.segmentation_outlier_num_neighbors,
+        "segmentation_bspline_k"             : pargs.segmentation_bspline_order,
+
+        "stereomatch_bspline_k"              : pargs.stereomatch_bspline_order,
+        "stereomatch_tmscore_thresh"         : pargs.stereomatch_tm_score_thresh,
+        "stereomatch_outlier_thresh"         : pargs.stereomatch_outlier_thresh,
+        "stereomatch_outlier_scale"          : pargs.stereomatch_outlier_scale,
+        "stereomatch_outlier_num_neighbors"  : pargs.stereomatch_outlier_num_neighbors,
+        "steromatch_use_roi"                 : pargs.stereomatch_use_roi,
+    }
     if pargs.video:
-        image_processor = StereoRefInsertionExperimentVideo( pargs.stereoParamFile, pargs.dataDirectory,
-                                                             pargs.insertion_depths, pargs.insertion_numbers,
-                                                             roi=(left_roi, right_roi),
-                                                             blackout=(left_blackout, right_blackout),
-                                                             contrast=(left_contrast, right_contrast) )
+        image_processor = StereoRefInsertionExperimentVideo(
+            pargs.stereoParamFile, pargs.dataDirectory,
+            pargs.insertion_depths, pargs.insertion_numbers,
+            roi=(left_roi, right_roi),
+            blackout=(left_blackout, right_blackout),
+            contrast=(left_contrast, right_contrast)
+        )
         image_processor.process_video( save=pargs.save, overwrite=pargs.force_overwrite, **stereo_kwargs )
     # if
     elif (pargs.aruco_id is not None) and (pargs.aruco_size is not None):
-        image_processor = StereoRefInsertionExperimentARUCO( pargs.stereoParamFile, pargs.dataDirectory,
-                                                             pargs.insertion_depths, pargs.insertion_numbers,
-                                                             aruco_id=pargs.aruco_id, aruco_size=pargs.aruco_size,
-                                                             roi=(left_roi, right_roi),
-                                                             blackout=(left_blackout, right_blackout),
-                                                             contrast=(left_contrast, right_contrast) )
+        image_processor = StereoRefInsertionExperimentARUCO(
+            pargs.stereoParamFile, pargs.dataDirectory,
+            pargs.insertion_depths, pargs.insertion_numbers,
+            aruco_id=pargs.aruco_id, aruco_size=pargs.aruco_size,
+            roi=(left_roi, right_roi),
+            blackout=(left_blackout, right_blackout),
+            contrast=(left_contrast, right_contrast)
+        )
     # elif
     else:  # Insertion Images
-        image_processor = StereoRefInsertionExperiment( pargs.stereoParamFile, pargs.dataDirectory,
-                                                        pargs.insertion_depths, pargs.insertion_numbers,
-                                                        roi=(left_roi, right_roi),
-                                                        blackout=(left_blackout, right_blackout),
-                                                        contrast=(left_contrast, right_contrast) )
+        image_processor = StereoRefInsertionExperiment(
+            pargs.stereoParamFile, pargs.dataDirectory,
+            pargs.insertion_depths, pargs.insertion_numbers,
+            roi=(left_roi, right_roi),
+            blackout=(left_blackout, right_blackout),
+            contrast=(left_contrast, right_contrast)
+        )
     # else
 
-    image_processor.process_dataset( image_processor.dataset, save=pargs.save, overwrite=pargs.force_overwrite,
-                                     **stereo_kwargs )
+    image_processor.process_dataset(
+        image_processor.dataset,
+        save=pargs.save,
+        overwrite=pargs.force_overwrite,
+        **stereo_kwargs
+    )
 
     print( "Program completed." )
 
