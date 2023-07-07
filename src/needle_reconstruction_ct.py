@@ -5,6 +5,7 @@ from dataclasses import (
 import os
 
 from typing import (
+    Any,
     Dict,
     List,
     Tuple,
@@ -37,6 +38,20 @@ class ROI3D:
     def br(self, br: List[int]):
         self.bottom_right = br
 
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]):
+        obj = cls()
+
+        if "top_left" in d.keys():
+            obj.top_left = d["top_left"]
+
+        if "bottom_right" in d.keys():
+            obj.bottom_right = d["bottom_right"]
+
+        return obj
+    
+    # from_dict
+
     def get_mask(self, shape: Tuple[int], invert: bool = False):
         mask = np.zeros(shape, dtype=bool)
 
@@ -52,14 +67,29 @@ class ROI3D:
         return mask
     
     # get_mask
+    
+    def to_dict(self):
+        return {
+            "top_left"    : self.top_left,
+            "bottom_right": self.bottom_right,
+        }
+    
+    # to_dict
 
 # dataclass: ROI3D
 
 @dataclass
 class CTNeedleReconstructionOptions:
     # image properties
-    roi             : ROI3D       = field( default_factory=ROI3D )
-    blackout_regions: List[ROI3D] = field( default_factory=list )
+    # - region of interests
+    roi           : ROI3D = field( default_factory=ROI3D )
+    roi_needle    : ROI3D = field( default_factory=ROI3D )
+    roi_fiducials : ROI3D = field( default_factory=ROI3D )
+
+    # - blackout regions
+    blackout_regions          : List[ROI3D] = field( default_factory=list )
+    blackout_regions_needle   : List[ROI3D] = field( default_factory=list )
+    blackout_regions_fiducials: List[ROI3D] = field( default_factory=list )
 
     # segmentation properties
     threshold: int = 10_000
@@ -75,6 +105,74 @@ class CTNeedleReconstructionOptions:
         return self.fiducial_locations.shape[0]
     
     # num_fiducials
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]):
+        obj = cls()
+
+        # set region of interestes
+        for roi_key in [
+            "roi", 
+            "roi_needle", 
+            "roi_fiducials",
+        ]:
+            setattr(obj, roi_key, ROI3D.from_dict(d.get(roi_key, dict())))
+
+        # set blackout regions
+        for bor_key in [
+            "blackout_regions",
+            "blackout_regions_needle",
+            "blackout_regions_fiducials",
+        ]:
+            setattr(
+                obj,
+                bor_key,
+                list( map( ROI3D.from_dict, d.get( bor_key, list() ) ) )
+            )
+
+        # for
+
+        # set simple elements
+        for key in [
+            "threshold", 
+            "bspline_order",
+        ]:
+            if key in d.keys():
+                setattr(obj, key, d[key])
+
+            # if
+        # for
+
+        # set numpy arrays
+        for np_key in [
+            "fiducial_locations",
+        ]:
+            if np_key in d.keys():
+                setattr( obj, np_key, np.asarray(d[np_key]) )
+
+            # if
+        # for
+
+
+        return obj
+    
+    # from_dict
+
+    def to_dict(self):
+        return {
+            "roi"                       : self.roi.to_dict(),
+            "roi_needle"                : self.roi_needle.to_dict(),
+            "roi_fiducials"             : self.roi_fiducials.to_dict(),
+            "blackout_regions"          : [ bor.to_dict() for bor in self.blackout_regions ],
+            "blackout_regions_needle"   : [ bor.to_dict() for bor in self.blackout_regions_needle ],
+            "blackout_regions_fiducials": [ bor.to_dict() for bor in self.blackout_regions_fiducials ],
+            "threshold"                 : self.threshold,
+            "bspline_order"             : self.bspline_order,
+            "fiducial_locations"        : self.fiducial_locations.tolist(),
+        }
+
+    # to_dict
+
 
 # dataclass: CTNeedleReconstructionOptions
 
@@ -104,7 +202,7 @@ class CTNeedleReconstruction:
             
         
         """
-        assert self.dicom_image3d is not None, "You needl to load the dicom .npz CT scan files!"
+        assert self.dicom_image3d is not None, "You need to load the dicom .npz CT scan files!"
 
         # get the masks required for processing
         thresh_mask = self.dicom_image3d.image >= self.options.threshold

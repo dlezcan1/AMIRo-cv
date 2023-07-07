@@ -1,7 +1,4 @@
-import datetime
-import json
 import os
-import re
 
 import dicom
 
@@ -12,8 +9,15 @@ from typing import (
 
 
 def main():
-    in_dir = "/home/dlezcan1/data/7CH-4AA-0001-MCF-even/2023-06-15_2023-06-16_Beef-Insertion-Experiment/ct_images/mcf-beef-insertion-CT/"
-
+    in_dir = os.path.join(
+        os.getenv('HOME'),
+        "data",
+        "7CH-4AA-0001-MCF-even",
+        "2023-06-15_2023-06-16_Beef-Insertion-Experiment",
+        "ct_images",
+        "mcf-beef-insertion-CT"
+    )
+    
     dicom_dir = dicom.DICOMDIR(os.path.join(in_dir, "BLDICOMDIR"))
 
     print("Loading CT Scan informations...")
@@ -48,10 +52,14 @@ def main():
             ct_image.time.strftime("%Y-%m-%d_%H-%M-%S"),
         )
         os.makedirs(odir, exist_ok=True)
-        outfile = os.path.join(odir, "ct_scan.npz")
+        outfile     = os.path.join(odir, "ct_scan.npz")
+        outfile_mat = os.path.join(odir, "ct_scan.mat")
 
         ct_image.save(outfile)
         print("Saved CT scan to:", outfile)
+
+        ct_image.savemat(outfile_mat)
+        print("Saved CT scan to:", outfile_mat)
 
     # for
     

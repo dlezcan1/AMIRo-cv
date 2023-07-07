@@ -3,6 +3,7 @@ import os
 import glob
 
 from typing import (
+    Any,
     Dict,
     List,
     Tuple,
@@ -10,6 +11,7 @@ from typing import (
 
 import pydicom
 import numpy as np
+import scipy.io as spio
 
 class ImageInfo:
     def __init__(self, dcm_img_info: pydicom.Dataset) -> None:
@@ -230,6 +232,33 @@ class Image3D:
 
     # save
 
+    def savemat(self, outfile: str, **kwargs):
+        spio.savemat(
+            outfile,
+            mdict=self.to_dict(),
+            **kwargs,
+        )
+
+    # savemat
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]):
+        obj = cls()
+
+        obj.image           = d.get("image", None)
+        obj.pixel_spacing   = d.get("pixel_spacing", None)
+        obj.slice_thickness = d.get("slice_thickness", None)
+        
+        time_str = d.get("time", None)
+        if time_str is not None:
+            obj.time = datetime.datetime.strptime("%Y-%m-%d_%H:%M:%S.%f")
+
+        # if
+
+        return obj
+
+    # from_dict
+
     @classmethod
     def from_npz_file(cls, npz_file: str):
         dcm_image3d = cls()
@@ -322,5 +351,15 @@ class Image3D:
         return dcm_image3d
 
     # from_path
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "image"          : self.image,
+            "pixel_spacing"  : self.pixel_spacing,
+            "slice_thickness": self.slice_thickness,
+            "time"           : self.time.strftime("%Y-%m-%d_%H:%M:%S.%f"),
+        }
+    
+    # to_dict
 
 # class: Image3D
