@@ -211,6 +211,12 @@ class Image3D:
     # property: aspect_ratio_saggital
 
     @property
+    def image_axis_scaling(self):
+        return np.asarray([self.pixel_spacing[0], self.pixel_spacing[1], self.slice_thickness])
+    
+    # property: image_axis_scaling
+
+    @property
     def aspect_ratios(self):
         return {
             "axial"   : self.aspect_ratio_axial,

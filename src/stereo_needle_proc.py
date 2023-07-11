@@ -43,6 +43,28 @@ COLOR_HSVRANGE_YELLOW = ((25, 50, 50), (35, 255, 255))
 # image size
 IMAGE_SIZE = (768, 1024)
 
+def arclength( pts: np.ndarray ):
+    """ Computes the arclength along the rows of points stacked
+
+        Returns:
+            L  - the total arclength of a set of points
+            ds - the arclength increments between points
+            s  - the arclength along the set of points
+    """
+    assert pts.ndim == 2, f"pts must be a 2D array!"
+
+    ds = np.linalg.norm(np.diff(pts, axis=0), ord=2, axis=1)
+
+    s = np.append(
+        [0],
+        np.cumsum(ds)
+    )
+
+    return np.sum(ds), ds, s
+
+
+# arclength
+
 
 def axisEqual3D( ax ):
     """ taken from online """
@@ -157,11 +179,11 @@ def canny( left_img, right_img, lo_thresh=150, hi_thresh=200 ):
 # canny
 
 
-def centerline_from_contours( 
-        contours, 
-        len_thresh: int = -1, 
+def centerline_from_contours(
+        contours,
+        len_thresh: int = -1,
         bspline_k: int = -1,
-        outlier_thresh: float = -1, 
+        outlier_thresh: float = -1,
         num_neighbors: int = -1,
         scale: tuple = (1, 1)
     ):
@@ -197,7 +219,7 @@ def centerline_from_contours(
     # outlier detection
     if (outlier_thresh >= 0) and (num_neighbors > 0):
         pts, inliers = filter_outlier_points(
-            pts, 
+            pts,
             outlier_thresh=outlier_thresh,
             num_neighbors=num_neighbors,
             scale=scale,
@@ -320,13 +342,13 @@ def filter_outlier_points(
     scale: tuple = None
 ):
     """ Filter outlier points
-    
-    
+
+
     """
     # outlier detection
     if (outlier_thresh < 0):
         raise ValueError(f"Outlier threshold must be > 0: {outlier_thresh} <= 0")
-    
+
     if (num_neighbors < 0):
         raise ValueError(f"Number of neighbors must be > 0: {num_neighbors} <= 0")
 
@@ -1545,7 +1567,7 @@ def needle_reconstruction_ref(
             pts_r_match = pts_r_match[inliers_match]
 
         # if
-    # 
+    #
 
     idx_l = np.argsort( pts_l_match[ :, 1 ] )
     pts_l_match = pts_l_match[ idx_l ]
@@ -1563,19 +1585,19 @@ def needle_reconstruction_ref(
     # if
 
     # = add to images
-    left_rect_match_draw  = cv.polylines( 
+    left_rect_match_draw  = cv.polylines(
         left_rect_full.copy(),
-        [ pts_l_match.reshape( -1, 1, 2 ).round().astype( np.int32 ) ], 
+        [ pts_l_match.reshape( -1, 1, 2 ).round().astype( np.int32 ) ],
         False,
-        (255, 0, 0), 
-        3 
+        (255, 0, 0),
+        3
     )
-    right_rect_match_draw = cv.polylines( 
+    right_rect_match_draw = cv.polylines(
         right_rect_full.copy(),
-        [ pts_r_match.reshape( -1, 1, 2 ).round().astype( np.int32 ) ], 
+        [ pts_r_match.reshape( -1, 1, 2 ).round().astype( np.int32 ) ],
         False,
-        (255, 0, 0), 
-        3 
+        (255, 0, 0),
+        3
     )
     imgs_ret[ 'contours-match' ] = imconcat( left_rect_match_draw, right_rect_match_draw, [ 0, 0, 255 ] )
 
@@ -2074,7 +2096,7 @@ def roi_around_point( point: Union[list, np.ndarray], width: int = None, height:
         img_roi[0, 1] = max(0, x - width//2 - 1)
         img_roi[1, 1] = x + width//2
 
-    # if: width 
+    # if: width
 
     if height is not None:
         img_roi[0, 0] = max(0, y - height//2 - 1)
@@ -2367,13 +2389,13 @@ def stereomatch_needle( left_conts, right_conts, method="tip-count", col: int = 
 # stereomatch_needle
 
 
-def stereomatch_normxcorr( 
-        left_conts, right_conts, 
+def stereomatch_normxcorr(
+        left_conts, right_conts,
         img_left, img_right,
-        roi_l_mask=None, roi_r_mask=None, 
+        roi_l_mask=None, roi_r_mask=None,
         score_thresh=0.75,
-        col: int = 1, 
-        zoom=1.0, 
+        col: int = 1,
+        zoom=1.0,
         winsize=(5, 5),
         keep_last_match: bool = False,
     ):
@@ -2448,7 +2470,7 @@ def stereomatch_normxcorr(
     # pad the images with winsize and zoom
     left_pad   = np.pad( img_left,  ((winsize[ 0 ] // 2, winsize[ 0 ] // 2), (winsize[ 1 ] // 2, winsize[ 1 ] // 2)) )
     right_pad  = np.pad( img_right, ((winsize[ 0 ] // 2, winsize[ 0 ] // 2), (winsize[ 1 ] // 2, winsize[ 1 ] // 2)) )
-    
+
     left_mask = None
     if roi_l_mask is not None:
         left_mask  = np.pad( roi_l_mask, ((winsize[ 0 ] // 2, winsize[ 0 ] // 2), (winsize[ 1 ] // 2, winsize[ 1 ] // 2)) )
@@ -2456,7 +2478,7 @@ def stereomatch_normxcorr(
     right_mask = None
     if roi_r_mask is not None:
         right_mask = np.pad( roi_r_mask, ((winsize[ 0 ] // 2, winsize[ 0 ] // 2), (winsize[ 1 ] // 2, winsize[ 1 ] // 2)) )
-    
+
     left_zoom  = cv.resize( left_pad,   None, fx=zoom, fy=zoom, interpolation=cv.INTER_CUBIC )
     right_zoom = cv.resize( right_pad,  None, fx=zoom, fy=zoom, interpolation=cv.INTER_CUBIC )
 
@@ -2471,7 +2493,7 @@ def stereomatch_normxcorr(
         right_mask_zoom = cv.resize( right_mask, None, fx=zoom, fy=zoom, interpolation=cv.INTER_NEAREST )
         roi_right       = roi_bounds_from_mask( right_mask_zoom )
         roi_right       = roi_expand(
-            roi_right, 
+            roi_right,
             top=new_winsize[0],
             bottom=new_winsize[0],
             left=new_winsize[1]//2 + 1,
@@ -2522,9 +2544,9 @@ def stereomatch_normxcorr(
         px_pt = np.flip( zoom * pts_l[ i ] ).round().astype( np.int32 ) + np.array( new_winsize ) // 2
 
         img_roi = roi_around_point(
-            px_pt, 
+            px_pt,
             height=new_winsize[0],
-            width=new_winsize[1], 
+            width=new_winsize[1],
         )
 
         template      = roi( left_zoom, img_roi, full=False )
@@ -2557,13 +2579,13 @@ def stereomatch_normxcorr(
             (score > score_thresh)
             or (keep_last_match and (i == pts_l.shape[0]))
         ):
-            left_matches = np.append( 
-                left_matches, 
-                np.reshape( px_pt - np.array( new_winsize ) // 2, (1, 2) ), 
+            left_matches = np.append(
+                left_matches,
+                np.reshape( px_pt - np.array( new_winsize ) // 2, (1, 2) ),
                 axis=0
             )
-            right_matches = np.append( 
-                right_matches, 
+            right_matches = np.append(
+                right_matches,
                 np.reshape( match_pt - np.array( new_winsize ) // 2, (1, 2) ),
                 axis=0,
             )
