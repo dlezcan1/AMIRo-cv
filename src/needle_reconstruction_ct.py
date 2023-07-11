@@ -806,6 +806,11 @@ def main(args=None):
 
         print("Saved CT scan reconstructed results to:", outfile)
 
+        opts_outfile = os.path.join(ARGS.odir, "ct_reconstruction_options.json")
+        ct_needle_reconstructor.options.save(opts_outfile)
+
+        print("Saved CT scan reconstruction options to:", opts_outfile)
+
     # if
 
 
