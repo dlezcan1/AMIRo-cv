@@ -268,7 +268,7 @@ class CTNeedleReconstructionOptions:
 
     @classmethod
     def from_parsed_arguments(cls, args: ap.Namespace):
-        args_kwargs: dict = args._get_kwargs()
+        args_kwargs: dict = dict(args._get_kwargs())
 
         opts = cls()
 
@@ -537,6 +537,10 @@ class CTNeedleReconstruction:
             needle_idx_pts.astype(np.float64)
             * self.dicom_image3d.image_axis_scaling.reshape(1, -1)
         )
+
+        sort_idx   = np.argsort(needle_pts[:, 2])
+        needle_pts = needle_pts[sort_idx]
+        
         self.needle_shape = needle_pts
 
         # smoothing and interpolation
@@ -669,7 +673,7 @@ def __parse_args(args=None):
 
     parser.add_argument(
         '--save-images',
-        aciton="store_true"
+        action="store_true"
     )
 
     # hyper-parameter arguments
@@ -705,14 +709,14 @@ def plot_3d_mask(
     
     """
     if fig is None:
-        fig = plt.gcf()
+        fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
 
     # if
 
     pts = np.argwhere(mask).astype(np.float64)
     if point_scaling is not None:
-        pts *= np.reshape(point_scaling, (-1, 1))
+        pts *= np.reshape(point_scaling, (1, -1))
 
     # if
 
@@ -739,7 +743,7 @@ def main(args=None):
 
     opts = CTNeedleReconstructionOptions.from_parsed_arguments(ARGS)
     if ARGS.options_json is not None:
-        opts = CTNeedleReconstructionOptions.from_json(ARGS.option_json)
+        opts = CTNeedleReconstructionOptions.from_json(ARGS.options_json)
 
     ct_needle_reconstructor = CTNeedleReconstruction(options=opts)
 
@@ -748,6 +752,7 @@ def main(args=None):
     ct_needle_reconstructor.load_ct_scan(ARGS.datafile)
 
     # handle the data
+    print("Reconstructing the scene...")
     results = ct_needle_reconstructor.reconstruct_scene(debug=ARGS.debug_images)
 
     # plot the debug images
@@ -755,17 +760,29 @@ def main(args=None):
         debug_images = results[-1]
         results      = results[:-1]
 
+        print("Handling debug images...")
         for kw, mask_img in debug_images.items():
             fig, ax = plot_3d_mask(
                 mask_img,
                 fig=None,
                 ax=None,
-                point_scaling=ct_needle_reconstructor.dicom_image3d.image_axis_scaling,
+                point_scaling=(
+                    ct_needle_reconstructor.dicom_image3d.image_axis_scaling
+                    if not ARGS.debug_image_units_in_voxels else
+                    None
+                ),
             )
+            ax.set_title(f"Debug Image: {kw}")
+
+            units = "voxels" if ARGS.debug_image_units_in_voxels else "mm"
+            ax.set_xlabel(f"x ({units})")
+            ax.set_ylabel(f"y ({units})")
+            ax.set_zlabel(f"z ({units})")
             
             if (ARGS.odir is not None) and ARGS.save_images:
                 outfigfile = os.path.join(ARGS.odir, f"ct_results_debug_image_{kw}.png")
                 fig.savefig(outfigfile)
+
 
                 print(f"Saved figure for {kw} to: {outfigfile}")
 
@@ -773,7 +790,6 @@ def main(args=None):
 
         # for
         if ARGS.show_images:
-            plt.ion()
             plt.show()
 
         # if
@@ -792,6 +808,8 @@ def main(args=None):
 
     # if
 
+
+    print("Program Completed.")
 
 
 # main
