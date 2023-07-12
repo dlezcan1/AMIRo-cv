@@ -106,7 +106,8 @@ class CTNeedleReconstructionOptions:
     blackout_regions_fiducials: List[ROI3D] = field( default_factory=list )
 
     # segmentation properties
-    threshold: int = 10_000
+    threshold        : int = 10_000
+    num_points_thresh: int = 500
 
     # interpolation options
     bspline_order   : int   = -1
@@ -176,6 +177,14 @@ class CTNeedleReconstructionOptions:
         )
 
         parser.add_argument(
+            "--num-points-thresh",
+            type=int,
+            required=False,
+            default=None,
+            help="The minimum number of points in a segmentation to be considered."
+        )
+
+        parser.add_argument(
             "--bspline-order",
             type=int,
             default=None,
@@ -233,6 +242,7 @@ class CTNeedleReconstructionOptions:
             "threshold", 
             "bspline_order",
             "interpolation_ds",
+            "num_points_thresh",
         ]:
             if key in d.keys():
                 setattr(obj, key, d[key])
@@ -318,6 +328,7 @@ class CTNeedleReconstructionOptions:
             "threshold",
             "bspline_order",
             "interpolation_ds",
+            "num_points_thresh",
         ]:
             if args_kwargs.get(kw, None) is not None:
                 setattr(opts, kw, args_kwargs[kw])
@@ -360,6 +371,7 @@ class CTNeedleReconstructionOptions:
             "blackout_regions_needle"   : [ bor.to_dict() for bor in self.blackout_regions_needle ],
             "blackout_regions_fiducials": [ bor.to_dict() for bor in self.blackout_regions_fiducials ],
             "threshold"                 : self.threshold,
+            "num_points_thresh"         : self.num_points_thresh,
             "bspline_order"             : self.bspline_order,
             "interpolation_ds"          : self.interpolation_ds,
             "fiducial_locations"        : self.fiducial_locations.tolist() if self.fiducial_locations is not None else None,
@@ -489,14 +501,35 @@ class CTNeedleReconstruction:
             connectivity=kwargs.get("connected_components_connectivity", 1),
             return_num=True,
         )
-        lbl_max = np.argmax(
-            [
-                np.sum(lbl_needle_mask == lbl)
-                for lbl in range(1, num_labels)
-            ]
-        ) + 1
-        seg_needle_mask = lbl_needle_mask == lbl_max
-        debug_images["needle_image_roi_conncomp"] = seg_needle_mask
+        lbl_count = {
+            lbl: np.sum(lbl_needle_mask == lbl)
+            for lbl in range(1, num_labels + 1)
+        }
+        lbl_max = sorted(lbl_count.items(), key=lambda k_v: k_v[1])[-1][0]
+
+        # -- perform analysis to remove labels that don't have the maximum z-deviation (length of the needle)
+        viable_lbls = [
+            lbl 
+            for lbl, count in lbl_count.items()
+            if count >= self.options.num_points_thresh
+        ]
+        _max_z_dev = -np.inf
+        lbl_seg = lbl_max
+        for lbl in viable_lbls:
+            pts_lbl = np.argwhere(lbl_needle_mask == lbl)
+
+            _z_dev = np.ptp(pts_lbl[:, 2])
+            if _z_dev > _max_z_dev:
+                _max_z_dev = _z_dev
+                lbl_seg = lbl
+
+            # if
+
+        # for
+        
+        seg_needle_mask = lbl_needle_mask == lbl_seg
+        debug_images["needle_image_roi_conncomp_labels"] = lbl_needle_mask
+        debug_images["needle_image_roi_conncomp"]        = seg_needle_mask
 
         seg_needle_skel_mask = skimage.morphology.skeletonize_3d(seg_needle_mask)
         debug_images["needle_image_roi_skeleton"] = seg_needle_skel_mask
@@ -676,6 +709,16 @@ def __parse_args(args=None):
         action="store_true"
     )
 
+    parser.add_argument(
+        "--save-results",
+        action="store_true"
+    )
+
+    parser.add_argument(
+        "--save-options",
+        action="store_true"
+    )
+
     # hyper-parameter arguments
     hyparam_arg_grp = parser.add_argument_group("Hyperparameters")
     hyparam_arg_grp.add_argument(
@@ -732,11 +775,40 @@ def plot_3d_mask(
         **kwargs
     )
 
-    stereo_needle_proc.axisEqual3D(ax)
-
     return fig, ax
 
 # plot_3d_mask
+
+def plot_3d_labels(
+        label_image: npt.NDArray, 
+        labels: List[Any] = None,
+        fig: plt.Figure = None,
+        ax: plt.Axes = None,
+        point_scaling: npt.NDArray[np.float64] = None,
+        **kwargs
+    ):
+    """ Plot the labels from the classification of points """
+    if labels is None:
+        labels = np.unique(label_image)
+        labels = labels[labels != 0] 
+
+    # if
+
+    fig, ax = None, None
+    for label in labels:
+        fig, ax = plot_3d_mask(
+            label_image == label,
+            fig=fig,
+            ax=ax,
+            point_scaling=point_scaling,
+            **kwargs
+        )
+
+    # for
+
+    return fig, ax
+
+# plot_3d_labels
 
 def main(args=None):
     ARGS = __parse_args(args)
@@ -757,13 +829,30 @@ def main(args=None):
 
     # plot the debug images
     if ARGS.debug_images:
-        debug_images = results[-1]
-        results      = results[:-1]
+        debug_images  = results[-1]
+        results       = results[:-1]
+        needle_shape  = results[0]
+        fiducial_locs = results[1]
 
         print("Handling debug images...")
-        for kw, mask_img in debug_images.items():
-            fig, ax = plot_3d_mask(
-                mask_img,
+
+        # plot the needle shape and the 
+        fig, ax = plt.subplots(nrows=1, ncols=1, subplot_kw={"projection": "3d"}, figsize=(10,10))
+        ax.scatter(needle_shape[:, 0], needle_shape[:, 1], needle_shape[:, 2], label="needle shape", alpha=1.0)
+        ax.scatter(fiducial_locs[:, 0], fiducial_locs[:, 1], fiducial_locs[:, 2], label="fiducials", alpha=1.0)
+
+        units = "voxels" if ARGS.debug_image_units_in_voxels else "mm"
+        ax.set_xlabel(f"x ({units})")
+        ax.set_ylabel(f"y ({units})")
+        ax.set_zlabel(f"z ({units})")
+        stereo_needle_proc.axisEqual3D(ax)
+        ax.legend(loc='best')
+
+        ax.set_title(f"Debug Image: CT Reconstruction")
+
+        for kw, image in debug_images.items():
+            fig, ax = plot_3d_labels(
+                image,
                 fig=None,
                 ax=None,
                 point_scaling=(
@@ -774,10 +863,10 @@ def main(args=None):
             )
             ax.set_title(f"Debug Image: {kw}")
 
-            units = "voxels" if ARGS.debug_image_units_in_voxels else "mm"
             ax.set_xlabel(f"x ({units})")
             ax.set_ylabel(f"y ({units})")
             ax.set_zlabel(f"z ({units})")
+            stereo_needle_proc.axisEqual3D(ax)
             
             if (ARGS.odir is not None) and ARGS.save_images:
                 outfigfile = os.path.join(ARGS.odir, f"ct_results_debug_image_{kw}.png")
@@ -798,19 +887,24 @@ def main(args=None):
     # if
 
     if ARGS.odir is not None:
-        outfile = ct_needle_reconstructor.save_results(
-            odir=ARGS.odir,
-        )
+        if ARGS.save_options:
+            opts_outfile = os.path.join(ARGS.odir, "ct_reconstruction_options.json")
+            ct_needle_reconstructor.options.save(opts_outfile)
 
-        assert outfile is not None, "Results did not properly save! Check your data sources."
+            print("Saved CT scan reconstruction options to:", opts_outfile)
 
-        print("Saved CT scan reconstructed results to:", outfile)
+        # if
 
-        opts_outfile = os.path.join(ARGS.odir, "ct_reconstruction_options.json")
-        ct_needle_reconstructor.options.save(opts_outfile)
+        if ARGS.save_results:
+            outfile = ct_needle_reconstructor.save_results(
+                odir=ARGS.odir,
+            )
 
-        print("Saved CT scan reconstruction options to:", opts_outfile)
+            assert outfile is not None, "Results did not properly save! Check your data sources."
 
+            print("Saved CT scan reconstructed results to:", outfile)
+
+        # if
     # if
 
 
