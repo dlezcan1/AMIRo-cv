@@ -4,7 +4,7 @@
 DATA_DIR="$HOME/data/7CH-4AA-0001-MCF-even"\
 "/2023-06-15_2023-06-16_Beef-Insertion-Experiment"\
 "/ct_images/mcf-beef-insertion-CT/results"\
-"/2023-06-15"
+"/2023-06-16"
 
 
 DEFAULT_OPTS_JSON="$DATA_DIR/ct_reconstruction_options.json"

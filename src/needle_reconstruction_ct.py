@@ -28,6 +28,8 @@ from util import (
     BSplineND,
     icp,
     point_cloud_registration,
+    point_cloud_registation_ransac,
+    transformSE3,
 )
 import stereo_needle_proc
 
@@ -405,7 +407,7 @@ class CTNeedleReconstruction:
 
     def determine_fiducial_locations(
         self, 
-        mask: npt.NDArray[np.bool8],
+        mask: npt.NDArray[np.bool_],
     ) -> npt.NDArray[np.float64]:
         pts_fiducials = (
             np.argwhere(mask).astype(np.float_)
@@ -419,6 +421,9 @@ class CTNeedleReconstruction:
         )
         clf_.fit(pts_fiducials)
         fiducial_locations = clf_.cluster_centers_
+
+        fiducial_locations = fiducial_locations[fiducial_locations[:, 1].argsort()[::-1]]
+        fiducial_locations = fiducial_locations[fiducial_locations[:, 2].argsort()[::-1]]
 
         return fiducial_locations
 
@@ -551,18 +556,23 @@ class CTNeedleReconstruction:
             mask=seg_fiducials_mask,
         )
 
-        #  get pose of fiducial
-        fiducial_pose_init = point_cloud_registration(
+        # get pose of fiducial
+        self.fiducial_pose = point_cloud_registration(
             self.options.fiducial_locations,
             self.fiducial_locations,
             rotation_about_idx=None,
         )
-        self.fiducial_pose = icp(
-            self.options.fiducial_locations, 
-            self.fiducial_locations,
-            max_correspondence_distance=1e-2, # mm
-            init=fiducial_pose_init,
-        )
+        # FIXME: need to update registration method without direct correspondence
+        # self.fiducial_pose, num_inliers, regist_error = point_cloud_registation_ransac(
+        #     self.options.fiducial_locations,
+        #     self.fiducial_locations,
+        #     num_trials=50_000,
+        #     num_samples=self.options.num_fiducials,
+        #     inlier_threshold=0.1,
+        #     break_on_all_inliers=True,
+        #     random_seed=0
+        # )
+        # print(f"[RANSAC Result]: Number of inliers {num_inliers} | avg. error {regist_error}")
 
         # get the needle shape points
         needle_idx_pts = np.argwhere(seg_needle_skel_mask)  # (N, 3)
@@ -738,7 +748,7 @@ def __parse_args(args=None):
 # __parse_args
 
 def plot_3d_mask(
-        mask: npt.NDArray[np.bool8], 
+        mask: npt.NDArray[np.bool_], 
         fig: plt.Figure = None,
         ax: plt.Axes = None,
         point_scaling: npt.NDArray[np.float64] = None,
@@ -833,13 +843,19 @@ def main(args=None):
         results       = results[:-1]
         needle_shape  = results[0]
         fiducial_locs = results[1]
+        fiducial_pose = results[2]
 
         print("Handling debug images...")
 
-        # plot the needle shape and the 
+        # plot the needle shape and the fiducials
+        tf_fiducial_locs = transformSE3(
+            ct_needle_reconstructor.options.fiducial_locations,
+            fiducial_pose,
+        )
         fig, ax = plt.subplots(nrows=1, ncols=1, subplot_kw={"projection": "3d"}, figsize=(10,10))
         ax.scatter(needle_shape[:, 0], needle_shape[:, 1], needle_shape[:, 2], label="needle shape", alpha=1.0)
-        ax.scatter(fiducial_locs[:, 0], fiducial_locs[:, 1], fiducial_locs[:, 2], label="fiducials", alpha=1.0)
+        ax.scatter(fiducial_locs[:, 0], fiducial_locs[:, 1], fiducial_locs[:, 2], label="fiducials - CT", alpha=1.0)
+        ax.scatter(tf_fiducial_locs[:, 0], tf_fiducial_locs[:, 1], tf_fiducial_locs[:, 2], label="fiducials - Registered", alpha=1.0)
 
         units = "voxels" if ARGS.debug_image_units_in_voxels else "mm"
         ax.set_xlabel(f"x ({units})")
@@ -849,7 +865,14 @@ def main(args=None):
         ax.legend(loc='best')
 
         ax.set_title(f"Debug Image: CT Reconstruction")
+        if (ARGS.odir is not None) and ARGS.save_images:
+            outfigfile = os.path.join(ARGS.odir, "ct_results_debug_image_needle-fiducials-finished.png")
+            fig.savefig(outfigfile)
+            print(f"Saved completed plot to: {outfigfile}")
 
+        # if
+
+        # plot the debug images
         for kw, image in debug_images.items():
             fig, ax = plot_3d_labels(
                 image,
