@@ -425,6 +425,14 @@ class CTNeedleReconstruction:
         fiducial_locations = fiducial_locations[fiducial_locations[:, 1].argsort()[::-1]]
         fiducial_locations = fiducial_locations[fiducial_locations[:, 2].argsort()[::-1]]
 
+        # FIXME: determine ordering
+        idx_ctr = np.argmin(np.linalg.norm(fiducial_locations - fiducial_locations.mean(axis=0)))
+        fid_loc_ctr = fiducial_locations[idx_ctr]
+
+        idxs = [0, 2, 1, 3, 5, 4, 7, 6, 8]
+
+        fiducial_locations = fiducial_locations[idxs]
+
         return fiducial_locations
 
     # determine_fiducial_locations
