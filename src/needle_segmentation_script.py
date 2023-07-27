@@ -14,7 +14,7 @@ for file in []:#os.listdir():
         print( "Processing file {}...".format( file ) )
         cv2.imshow( "thresh_" + file, segment_needle( file, "thresh" ) )
         print( "{} processed.\n".format( file ) )
-        break;
+        break
         
 cv2.waitKey( 0 )
 cv2.destroyAllWindows()
