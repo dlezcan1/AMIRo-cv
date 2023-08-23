@@ -16,8 +16,8 @@ for file in []:#os.listdir():
         print( "{} processed.\n".format( file ) )
         break
         
-cv2.waitKey( 0 )
-cv2.destroyAllWindows()
+# cv2.waitKey( 0 )
+# cv2.destroyAllWindows()
 
 # iterate through file directory
 for file in []:#os.listdir( directory ):
@@ -52,17 +52,8 @@ for file in []:#os.listdir( directory ):
 # #        break
 
 # pick out a particular file
-if True:
-    file = sys.argv[1]
-    img = cv2.imread( file, cv2.IMREAD_GRAYSCALE )
-#     ROI = [84, 250, 1280, 715]  # x_t-left, y_t-left, x_b-right, y_b-right
-# #     img = imgp.set_ROI(img, crop_area)
-#     CROP_AREA = ( 40, 420, 1230, 620 )
-#     img = imgp.set_ROI_box(img, CROP_AREA)
-    find_coordinate_image( img )
-#     seg_needle, _ = segment_needle(file,'canny', True)
-
+file = sys.argv[1]
+img = cv2.imread( file, cv2.IMREAD_GRAYSCALE )
+plt.imshow(img, cmap='gray')
 plt.show()
-cv2.waitKey( 0 )
 plt.close( 'all' )
-cv2.destroyAllWindows()

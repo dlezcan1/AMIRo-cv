@@ -261,6 +261,9 @@ class Image3D:
 
         # if
 
+        if obj.pixel_spacing is not None:
+            obj.pixel_spacing = tuple(obj.pixel_spacing)
+
         return obj
 
     # from_dict
@@ -361,7 +364,7 @@ class Image3D:
     def to_dict(self) -> Dict[str, Any]:
         return {
             "image"          : self.image,
-            "pixel_spacing"  : self.pixel_spacing,
+            "pixel_spacing"  : list(self.pixel_spacing),
             "slice_thickness": self.slice_thickness,
             "time"           : self.time.strftime("%Y-%m-%d_%H:%M:%S.%f"),
         }
