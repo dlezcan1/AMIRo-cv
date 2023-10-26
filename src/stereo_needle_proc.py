@@ -1512,13 +1512,31 @@ def needle_reconstruction_ref(
     left_rect_gray  = cv.cvtColor( left_rect_full, cv.COLOR_BGR2GRAY )
     right_rect_gray = cv.cvtColor( right_rect_full, cv.COLOR_BGR2GRAY )
 
+    blend_alpha       = kwargs.get("stereomatch_image_blend_alpha", 0.2)
+    left_stereomatch  = cv.addWeighted(
+        cv.remap( left_sub, map_l[ 0 ], map_l[ 1 ], cv.INTER_NEAREST ).astype(np.uint8),
+        1 - blend_alpha,
+        255 - left_rect_gray,
+        blend_alpha,
+        0, 
+    )
+    right_stereomatch = cv.addWeighted(
+        cv.remap( right_sub, map_r[ 0 ], map_r[ 1 ], cv.INTER_NEAREST ).astype(np.uint8),
+        1 - blend_alpha,
+        255 - right_rect_gray,
+        blend_alpha,
+        0, 
+    )
+
+    imgs_ret["stereomatch-image"] = imconcat(left_stereomatch, right_stereomatch, 125, 20)
+
     al_l = np.linalg.norm( np.diff( pts_l, axis=0 ), axis=1 ).sum()
     al_r = np.linalg.norm( np.diff( pts_r, axis=0 ), axis=1 ).sum()
 
     if al_l >= al_r:  # take the max arclengths
         pts_l_match, pts_r_match = stereomatch_normxcorr(
             pts_l, pts_r,
-            left_rect_gray, right_rect_gray,
+            left_stereomatch, right_stereomatch,
             roi_r_mask=boroi_r_mapped if sm_use_roi else None,
             winsize=winsize,
             zoom=zoom,
@@ -1545,7 +1563,7 @@ def needle_reconstruction_ref(
     else:
         pts_r_match, pts_l_match = stereomatch_normxcorr(
             pts_r, pts_l,
-            right_rect_gray, left_rect_gray,
+            right_stereomatch, left_stereomatch,
             roi_r_mask=boroi_l_mapped if sm_use_roi else None,
             winsize=winsize,
             zoom=zoom,
@@ -1651,6 +1669,13 @@ def needle_reconstruction_ref(
         figs_ret[ 'centerline-matches' ] = plt.figure( figsize=(12, 8) )
         plt.imshow( imconcat( left_rect_match_draw, right_rect_match_draw, [ 0, 0, 255 ] )[ :, :, ::-1 ] )
         plt.title( 'matched centerline points' )
+        
+        figs_ret[ 'stereomatch-images' ] = plt.figure( figsize=(12, 8) )
+        plt.imshow( imgs_ret['stereomatch-image'], cmap='gray' )
+        plt.plot( pts_l_match[ :, 0 ], pts_l_match[ :, 1 ], '-', label='left')
+        plt.plot( pts_r_match[ :, 0 ] + 20 + left_stereomatch.shape[1], pts_r_match[ :, 1 ], '-', label='right')
+        plt.legend()
+        plt.title( 'stereomatch-image' )
 
         figs_ret[ 'centerline-matches-plot' ] = plt.figure( figsize=(12, 8) )
         plt.plot( pts_l_match[ :, 0 ], pts_l_match[ :, 1 ], '.', label='left' )

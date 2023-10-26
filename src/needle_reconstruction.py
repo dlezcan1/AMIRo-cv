@@ -1161,6 +1161,12 @@ def __get_parser() -> argparse.ArgumentParser:
     )
 
     imgproc_group.add_argument(
+        "--stereomatch-image-blend-alpha",
+        type=float,
+        default=0.,
+        help="The amount you want to blend the image into the subtracted image: (alpha)*(image) + (1 - alpha)*(subtracted_ref_image)"
+    )
+    imgproc_group.add_argument(
         "--stereomatch-bspline-order",
         type=int,
         default=-1,
@@ -1361,6 +1367,7 @@ def main( args=None ):
         "segmentation_outlier_num_neighbors" : pargs.segmentation_outlier_num_neighbors,
         "segmentation_bspline_k"             : pargs.segmentation_bspline_order,
 
+        "stereomatch_image_blend_alpha"      : pargs.stereomatch_image_blend_alpha,
         "stereomatch_bspline_k"              : pargs.stereomatch_bspline_order,
         "stereomatch_tmscore_thresh"         : pargs.stereomatch_tm_score_thresh,
         "stereomatch_outlier_thresh"         : pargs.stereomatch_outlier_thresh,
